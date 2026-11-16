@@ -1,7 +1,7 @@
 # cessna
 
-A Cessna 172 flight simulator for Meta Quest 3 (WebXR). It also runs in a desktop browser.
-It is a static site: no build step, no server code.
+A flight simulator for Meta Quest 3 (WebXR) with three aircraft: a Cessna 172, a powered delta wing and a helicopter.
+It also runs in a desktop browser. It is a static site: no build step, no server code.
 
 ## Files
 
@@ -10,9 +10,9 @@ It is a static site: no build step, no server code.
 | `index.html` | Page, VR button, five script tags |
 | `three.min.js` | three.js r187, as a classic script (global `THREE`) |
 | `world.js` | Island, three airports, lights, trees, clouds, sky |
-| `flight.js` | Flight model: air forces, propeller, wheels. No drawing. |
-| `cockpit.js` | Airplane model, instruments, map screen, shadow |
-| `main.js` | Setup, input, sound, text display, frame loop |
+| `flight.js` | Flight models and the assist. No drawing. |
+| `cockpit.js` | Aircraft models, instruments, map screen, options hub, shadow |
+| `main.js` | Setup, options, input, sound, text display, frame loop |
 | `.nojekyll` | Tells GitHub Pages to publish the files as they are |
 
 ## Deploy
@@ -23,36 +23,67 @@ Cloudflare Pages: connect the repo, no build command, output directory `/`.
 
 WebXR needs HTTPS. The two hosts supply it.
 
+## Options hub
+
+The options are at the right of the map screen. In VR, point at a line with a controller and pull the trigger.
+On the Mac, use the keys `1` to `7`. The browser keeps your options.
+
+| Line | Option | Function |
+|---|---|---|
+| 1 | AIRCRAFT | Cessna, delta wing, helicopter |
+| 2 | ASSIST | ON: a flight computer holds the aircraft level. Stick in the center = level flight. |
+| 3 | LEVEL VIEW | ON: your view stays level with the horizon. The aircraft tilts around you. This helps against motion sickness. |
+| 4 | OPEN VIEW | ON: no aircraft body, the instruments are on a board above your forward view |
+| 5 | HAND STICK | ON: the right controller is the stick. Hold the grip and tilt the controller. |
+| 6 | NEXT START | The next start position |
+| 7 | START AGAIN | The same start position again |
+
+### Assist
+
+- Airplanes: stick left and right sets the bank angle (35 degrees at full stick). Stick forward and back sets the descent or climb angle.
+  The assist trims, removes the slip, holds the runway direction in the takeoff roll and keeps the wing below the stall angle.
+  On the ground the pitch is direct: pull to lift off.
+- Helicopter: the stick sets the tilt angle. With the stick in the center the helicopter slows to a hover.
+  The lever sets the climb rate: 50% holds the height, more goes up, less goes down. Below 45% on the ground it stands.
+- ASSIST OFF gives you the direct controls and the real behavior.
+
+### Hand stick
+
+Hold the right grip: the position of your hand at that moment is the center.
+Tilt the controller forward and back for pitch, left and right for roll. 25 degrees is the full input.
+Release the grip and the stick is in the center again. `HAND_FULL` and `HAND_HOLD` are at the top of `main.js`.
+
 ## Controls
 
 | | Quest | Mac |
 |---|---|---|
-| Pitch and roll (yoke) | right stick | pointer, no press |
-| Throttle | left stick up, down | `W` `S` |
-| Rudder and nose wheel | left stick left, right | `A` `D` |
-| Brakes | trigger | `SPACE` |
-| Flaps down, up | `X`, `Y` | `F`, `R` |
-| Trim nose down, up | `A`, `B` | arrow up, arrow down |
-| Next start position | hold the left stick button | `N` |
-| Start again | hold the right stick button | `ENTER` |
+| Stick: pitch and roll | right stick, or the hand stick | pointer, no press |
+| Throttle (helicopter: lever) | left stick up, down | `W` `S` |
+| Rudder, nose wheel, helicopter pedals | left stick left, right | `A` `D` |
+| Brakes | trigger (when you do not point at the hub) | `SPACE` |
+| Flaps down, up (Cessna) | `X`, `Y` | `F`, `R` |
+| Trim nose down, up (ASSIST OFF) | `A`, `B` | arrow up, arrow down |
+| Next start position | hub, or hold the left stick button | `6` or `N` |
+| Start again | hub, or hold the right stick button | `7` or `ENTER` |
 | Look left, right | your head | `Q` `E` |
-| Open view: no airplane body, instruments at the top | grip | `V` |
 | Outside view | - | `C` |
 | Pause | - | `P` |
 
 A gamepad on the Mac uses the same layout as the Quest controllers.
 
-## Open view
+## Aircraft
 
-The open view hides the airplane body, thus you can see the ground below and around you.
-The instruments are on a small board above your forward view. There is no yoke.
-The YOKE indicator on the board shows your inputs: orange dot = yoke (down = pull), bottom mark = rudder, left mark = trim.
-The flight model does not change: the wings and the wheels are there, but you do not see them.
-The browser keeps your selection. `OPEN_ANGLE` and `OPEN_DIST` at the top of `cockpit.js` set the position of the board.
+| | Cessna | Delta wing | Helicopter |
+|---|---|---|---|
+| Lift-off | approximately 60 kt | approximately 43 kt | lever above 60% (assist: above 50%) |
+| Cruise | 95 kt | 45 kt | 70 kt |
+| Top speed | 118 kt | 55 kt | 90 kt |
+| Stall | 51 kt | 32 kt | none |
+| Hard landing limit | 890 ft/min | 890 ft/min | 690 ft/min |
 
 ## Start positions
 
-Each airport has two: on the runway, and in the air 2.5 km before the runway (70 kt, flaps 20).
+Each airport has two: on the runway, and in the air 2.5 km before the runway.
 
 | Airport | Height | Runway | Note |
 |---|---|---|---|
@@ -60,18 +91,13 @@ Each airport has two: on the runway, and in the air 2.5 km before the runway (70
 | COSTA | 16 ft | 34, 800 m | On the west coast. |
 | SIERRA | 2590 ft | 08 to land, 26 to take off, 650 m | On a mountain shelf. One direction only. |
 
-## Fly
-
-- Takeoff: full throttle, a small quantity of right rudder, pull lightly at 55 kt, climb at 75 kt.
-- Cruise: 75% throttle gives approximately 95 kt. Full throttle gives 118 kt. Use the trim to hold the nose.
-- Landing: 65 to 70 kt with flaps 20 or 30. PAPI lights at the left of the runway:
-  2 white + 2 red = correct path, more red = too low. Throttle to idle and pull lightly near the ground.
-- More than 890 ft/min down at touchdown breaks the airplane.
+PAPI lights at the left of each runway: 2 white + 2 red = correct path, more red = too low.
 
 ## Numbers that you can change
 
-- `flight.js`, object `AC`: all aerodynamic numbers. `propYaw` is the left-turn tendency (0.015 = light, 0.15 = real).
-- `main.js`, top: `STICK_CURVE`, `THROTTLE_RATE`, `TRIM_RATE`, `INVERT_PITCH`, `AUTO_RUDDER`.
+- `flight.js`, objects `CESSNA`, `DELTA`, `HELI`: all flight numbers and the assist limits. `propYaw` is the left-turn tendency (0.015 = light, 0.15 = real).
+- `main.js`, top: `STICK_CURVE`, `THROTTLE_RATE`, `TRIM_RATE`, `INVERT_PITCH`, `AUTO_RUDDER`, `HAND_FULL`, `HAND_HOLD`.
+- `cockpit.js`, top: `OPEN_ANGLE`, `OPEN_DIST` (position of the board in the open view).
 - `world.js`, top: `AIRPORTS`, sun, fog.
 
 ## three.js

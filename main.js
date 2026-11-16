@@ -1,9 +1,9 @@
-// main.js - setup, pilot input, sound, text display, the frame loop.
+// main.js - setup, options, pilot input, sound, text display, the frame loop.
 // Classic script. It uses THREE, world.js, flight.js, cockpit.js.
 //
 // Order of this file:
-//   constants, setup, open view, start positions, keyboard and pointer, pilot input,
-//   sound, text display, camera, frame loop.
+//   constants, setup, options, start positions, keyboard and pointer, hand stick,
+//   hub pointer, pilot input, sound, text display, camera, frame loop.
 
 // ---------- constants ----------
 
@@ -11,8 +11,10 @@ var THROTTLE_RATE = 0.5;     // throttle change in one second with the key or th
 var TRIM_RATE = 0.2;         // trim change in one second
 var STICK_CURVE = 1.6;       // more than 1 = the stick is less sensitive near the center
 var INVERT_PITCH = 1;        // 1 = pull (stick or pointer down) moves the nose up. -1 = opposite.
-var AUTO_RUDDER = 0;         // 1 = the rudder moves with the ailerons, for easy turns
+var AUTO_RUDDER = 0;         // 1 = the rudder moves with the ailerons (only without the assist)
 var HOLD_TIME = 0.8;         // seconds to hold a thumbstick button for a restart
+var HAND_FULL = 0.44;        // hand stick: tilt of the controller for the full input, rad (25 degrees)
+var HAND_HOLD = 1;           // hand stick: 1 = hold the grip to fly. 0 = press the grip one time, press again to release.
 
 // ---------- setup ----------
 
@@ -45,7 +47,7 @@ var enterButton = document.getElementById('enter');
 
 var game = {
 	paused: 0,
-	chase: 0,            // 1 = desktop camera behind the airplane
+	chase: 0,            // 1 = desktop camera behind the aircraft
 	fade: 1,             // 1 = black, 0 = clear
 	crashTime: 0,        // seconds from the crash
 	acc: 0,              // time that the physics must do
@@ -55,7 +57,8 @@ var game = {
 	lookYaw: 0,
 	holdLeft: 0,
 	holdRight: 0,
-	open: 0              // 1 = open view: no airplane body, instruments at the top
+	hubHover: -1,        // line of the options hub below the pointer
+	hubDirty: 1          // 1 = draw the hub again
 };
 
 window.addEventListener('resize', function () {
@@ -91,27 +94,89 @@ renderer.xr.addEventListener('sessionend', function () {
 	camera.rotation.set(0, 0, 0);
 	camera.aspect = window.innerWidth / window.innerHeight;
 	camera.updateProjectionMatrix();
+	ray.line.visible = false;
+	ray.dot.visible = false;
 });
 
-// ---------- open view ----------
+// ---------- options ----------
 
-// the browser keeps your selection for the next visit
-function setOpen(on) {
-	game.open = on;
-	setOpenView(on, game.chase);
+// The options are on the hub of the instrument board. The browser keeps them for the next visit.
+var opt = {
+	aircraft: 0,     // index in AIRCRAFT
+	assist: 1,       // 1 = the flight computer holds the aircraft level
+	level: 1,        // 1 = your view stays level with the horizon. The aircraft tilts around you.
+	open: 0,         // 1 = open view: no aircraft body, instruments at the top
+	hand: 0          // 1 = the right controller is the stick: hold the grip and tilt the controller
+};
+
+function loadOptions() {
+	var saved, key;
 	try {
-		localStorage.setItem('cessna.open', on ? '1' : '0');
+		saved = JSON.parse(localStorage.getItem('cessna.options') || '{}');
+		for (key in opt) {
+			if (typeof saved[key] === 'number') opt[key] = saved[key];
+		}
 	} catch (e) {
-		// no storage: the selection is for this visit only
+		// no storage: the options are for this visit only
+	}
+	opt.aircraft = clamp(Math.round(opt.aircraft), 0, AIRCRAFT.length - 1);
+}
+
+function saveOptions() {
+	try {
+		localStorage.setItem('cessna.options', JSON.stringify(opt));
+	} catch (e) {
+		// no storage
 	}
 }
 
-try {
-	game.open = localStorage.getItem('cessna.open') === '1' ? 1 : 0;
-} catch (e) {
-	game.open = 0;
+// put the options into the flight model and the models
+function applyOptions() {
+	setAircraft(opt.aircraft);
+	plane.assist = opt.assist;
+	setBody(opt.aircraft);
+	setOpenView(opt.open, game.chase);
+	game.hubDirty = 1;
 }
-setOpenView(game.open, 0);
+
+// the lines of the hub: label and value
+function hubLines() {
+	return [
+		['AIRCRAFT', AC.name],
+		['ASSIST', opt.assist ? 'ON' : 'OFF'],
+		['LEVEL VIEW', opt.level ? 'ON' : 'OFF'],
+		['OPEN VIEW', opt.open ? 'ON' : 'OFF'],
+		['HAND STICK', opt.hand ? 'ON: GRIP' : 'OFF'],
+		['NEXT START', '>'],
+		['START AGAIN', '>']
+	];
+}
+
+// you selected line 'row' of the hub
+function hubAction(row) {
+	if (row === 0) {
+		opt.aircraft = (opt.aircraft + 1) % AIRCRAFT.length;
+		applyOptions();
+		restart(plane.start);
+	}
+	if (row === 1) {
+		opt.assist = 1 - opt.assist;
+		plane.assist = opt.assist;
+	}
+	if (row === 2) opt.level = 1 - opt.level;
+	if (row === 3) {
+		opt.open = 1 - opt.open;
+		setOpenView(opt.open, game.chase);
+	}
+	if (row === 4) {
+		opt.hand = 1 - opt.hand;
+		hand.held = 0;
+	}
+	if (row === 5) nextStart();
+	if (row === 6) restart(plane.start);
+	game.hubDirty = 1;
+	saveOptions();
+}
 
 // ---------- start positions ----------
 
@@ -127,6 +192,8 @@ function nextStart() {
 	restart((plane.start + 1) % STARTS.length);
 }
 
+loadOptions();
+applyOptions();
 restart(0);
 
 // ---------- keyboard and pointer ----------
@@ -136,16 +203,22 @@ var pointer = { x: 0, y: 0, used: 0 };
 var padUsed = 0;         // 1 = a gamepad gave an input, thus the pointer is not the yoke
 
 window.addEventListener('keydown', function (e) {
+	var digit;
 	startSound();
 	if (e.repeat) return;
 	keys[e.code] = 1;
 	if (e.code === 'KeyF') plane.flapSet = Math.min(3, plane.flapSet + 1);
 	if (e.code === 'KeyR') plane.flapSet = Math.max(0, plane.flapSet - 1);
 	if (e.code === 'KeyC') setChase(1 - game.chase);
-	if (e.code === 'KeyV') setOpen(1 - game.open);
 	if (e.code === 'KeyP') game.paused = 1 - game.paused;
 	if (e.code === 'Enter') restart(plane.start);
 	if (e.code === 'KeyN') nextStart();
+	if (e.code === 'KeyV') hubAction(3);
+	// keys 1 to 7 = the lines of the options hub
+	if (e.code.indexOf('Digit') === 0) {
+		digit = parseInt(e.code.slice(5), 10);
+		if (digit >= 1 && digit <= HUB_ROWS) hubAction(digit - 1);
+	}
 	if (e.code === 'Space' || e.code.indexOf('Arrow') === 0) e.preventDefault();
 });
 window.addEventListener('keyup', function (e) {
@@ -158,13 +231,68 @@ window.addEventListener('pointermove', function (e) {
 });
 window.addEventListener('pointerdown', startSound);
 
+// ---------- hand stick ----------
+
+// The right controller is the stick, as in an ultralight or a helicopter.
+// Hold the grip: the position of your hand at that moment is the center.
+// Then tilt the controller: forward and back = pitch, left and right = roll.
+// Release the grip: the stick goes back to the center.
+var hand = { held: 0, pitch: 0, roll: 0, neutral: new THREE.Quaternion(), now: new THREE.Quaternion() };
+var _hq = new THREE.Quaternion();
+
+// the tilt of the hand from the center position. q and neutral are in the axes of the head rig.
+// The result is in hand.pitch (+ = pull) and hand.roll (+ = right), where 1 = HAND_FULL.
+function handTilt(q, neutral) {
+	var half, s, k;
+	_hq.copy(neutral).invert().premultiply(q);        // the turn from neutral to q
+	if (_hq.w < 0) _hq.set(-_hq.x, -_hq.y, -_hq.z, -_hq.w);
+	half = Math.acos(clamp(_hq.w, -1, 1));
+	s = Math.sin(half);
+	k = s > 0.0001 ? 2 * half / s : 2;
+	hand.pitch = _hq.x * k / HAND_FULL;    // turn about the right axis: the top of the controller moves to you
+	hand.roll = -_hq.z * k / HAND_FULL;    // turn about the back axis: the top of the controller moves right
+}
+
+// ---------- hub pointer ----------
+
+// In VR you point at a line of the options hub with a controller and pull the trigger.
+var ray = {
+	caster: new THREE.Raycaster(),
+	origin: new THREE.Vector3(),
+	dir: new THREE.Vector3(),
+	quat: new THREE.Quaternion(),
+	line: null,
+	dot: null
+};
+ray.line = new THREE.Line(
+	new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3)),
+	new THREE.LineBasicMaterial({ color: 0xffffff, fog: false })
+);
+ray.line.frustumCulled = false;
+ray.line.visible = false;
+scene.add(ray.line);
+ray.dot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff9a2e, fog: false }));
+ray.dot.visible = false;
+scene.add(ray.dot);
+
+// which line of the hub does a ray hit? origin and dir are in world axes. The result is the line, or -1.
+function hubPoint(origin, dir) {
+	var hits;
+	ray.caster.set(origin, dir);
+	ray.caster.far = 3;
+	hits = ray.caster.intersectObject(parts.hub, false);
+	if (hits.length === 0 || !hits[0].uv) return -1;
+	ray.dot.position.copy(hits[0].point).addScaledVector(dir, -0.004);
+	return clamp(Math.floor((1 - hits[0].uv.y) * HUB_ROWS), 0, HUB_ROWS - 1);
+}
+
 // ---------- pilot input ----------
 
 // dead zone and curve for a stick axis
 function stick(v, dead) {
 	var a = Math.abs(v);
 	if (a < dead) return 0;
-	a = (a - dead) / (1 - dead);
+	a = Math.min(1, (a - dead) / (1 - dead));
 	return (v < 0 ? -1 : 1) * Math.pow(a, STICK_CURVE);
 }
 
@@ -184,11 +312,13 @@ function newPress(name, down) {
 	return down && !was;
 }
 
-function readInput(dt) {
+// xrFrame: the WebXR frame, or null on the desktop
+function readInput(dt, xrFrame) {
 	var pitch = 0, roll = 0, yaw = 0, brake = 0, thr = 0, trim = 0;
-	var holdL = 0, holdR = 0, grip = 0;
+	var holdL = 0, holdR = 0, hover = -1;
 	var session = renderer.xr.getSession();
-	var k, src, gp, pads, x, y;
+	var space = session ? renderer.xr.getReferenceSpace() : null;
+	var k, src, gp, pads, x, y, pose, o, row, trigger, grip;
 
 	// keyboard
 	if (keys.KeyW) thr += 1;
@@ -218,7 +348,6 @@ function readInput(dt) {
 			if (pressed(gp, 1)) trim += 1;
 			if (newPress('padX', pressed(gp, 2))) plane.flapSet = Math.min(3, plane.flapSet + 1);
 			if (newPress('padY', pressed(gp, 3))) plane.flapSet = Math.max(0, plane.flapSet - 1);
-			if (newPress('padView', pressed(gp, 4) || pressed(gp, 5))) setOpen(1 - game.open);
 			holdL = Math.max(holdL, pressed(gp, 10));
 			holdR = Math.max(holdR, pressed(gp, 11));
 		}
@@ -236,12 +365,59 @@ function readInput(dt) {
 			src = session.inputSources[k];
 			gp = src.gamepad;
 			if (!gp || gp.axes.length < 4) continue;
+			trigger = value(gp, 0);
+			grip = pressed(gp, 1);
+
+			// does this controller point at the options hub?
+			row = -1;
+			pose = (xrFrame && space && src.targetRaySpace) ? xrFrame.getPose(src.targetRaySpace, space) : null;
+			if (pose && !(src.handedness === 'right' && hand.held)) {
+				o = pose.transform.orientation;
+				ray.quat.set(o.x, o.y, o.z, o.w);
+				o = pose.transform.position;
+				ray.origin.set(o.x, o.y, o.z).applyMatrix4(parts.rig.matrixWorld);
+				ray.dir.set(0, 0, -1).applyQuaternion(ray.quat).transformDirection(parts.rig.matrixWorld);
+				row = hubPoint(ray.origin, ray.dir);
+				if (row >= 0) {
+					hover = row;
+					ray.line.geometry.attributes.position.setXYZ(0, ray.origin.x, ray.origin.y, ray.origin.z);
+					ray.line.geometry.attributes.position.setXYZ(1, ray.dot.position.x, ray.dot.position.y, ray.dot.position.z);
+					ray.line.geometry.attributes.position.needsUpdate = true;
+				}
+			}
+			// on the hub the trigger selects the line. Away from the hub the trigger is the brake.
+			if (newPress('trig' + src.handedness, trigger > 0.6 ? 1 : 0) && row >= 0) hubAction(row);
+			if (row < 0) brake = Math.max(brake, trigger);
+
 			if (src.handedness === 'right') {
 				roll += stick(gp.axes[2], 0.1);
 				pitch += stick(gp.axes[3], 0.1);
 				if (pressed(gp, 4)) trim -= 1;               // A: nose down
 				if (pressed(gp, 5)) trim += 1;               // B: nose up
 				holdR = Math.max(holdR, pressed(gp, 3));
+
+				// hand stick
+				pose = (opt.hand && xrFrame && space && src.gripSpace) ? xrFrame.getPose(src.gripSpace, space) : null;
+				if (pose) {
+					o = pose.transform.orientation;
+					hand.now.set(o.x, o.y, o.z, o.w);
+					if (newPress('grip', grip)) {
+						if (HAND_HOLD || !hand.held) {
+							hand.held = 1;
+							hand.neutral.copy(hand.now);
+						} else {
+							hand.held = 0;
+						}
+					}
+					if (HAND_HOLD && !grip) hand.held = 0;
+					if (hand.held) {
+						handTilt(hand.now, hand.neutral);
+						pitch += stick(hand.pitch, 0.08);
+						roll += stick(hand.roll, 0.08);
+					}
+				} else {
+					hand.held = 0;
+				}
 			}
 			if (src.handedness === 'left') {
 				yaw += stick(gp.axes[2], 0.15);
@@ -250,21 +426,23 @@ function readInput(dt) {
 				if (newPress('vrY', pressed(gp, 5))) plane.flapSet = Math.max(0, plane.flapSet - 1);   // Y: flaps up
 				holdL = Math.max(holdL, pressed(gp, 3));
 			}
-			brake = Math.max(brake, value(gp, 0));
-			grip = Math.max(grip, pressed(gp, 1));
 		}
-		// grip button of one of the two controllers: cockpit view or open view
-		if (newPress('vrGrip', grip)) setOpen(1 - game.open);
+	}
+	ray.line.visible = hover >= 0;
+	ray.dot.visible = hover >= 0;
+	if (hover !== game.hubHover) {
+		game.hubHover = hover;
+		game.hubDirty = 1;
 	}
 
 	roll = clamp(roll, -1, 1);
-	if (AUTO_RUDDER) yaw += roll * 0.35;
+	if (AUTO_RUDDER && !opt.assist) yaw += roll * 0.35;
 	ctl.pitch = clamp(pitch * INVERT_PITCH, -1, 1);
 	ctl.roll = roll;
 	ctl.yaw = clamp(yaw, -1, 1);
 	ctl.brake = clamp(brake, 0, 1);
 	plane.thr = clamp(plane.thr + clamp(thr, -1, 1) * THROTTLE_RATE * dt, 0, 1);
-	plane.trim = clamp(plane.trim + trim * TRIM_RATE * dt, -1, 1);
+	if (!opt.assist) plane.trim = clamp(plane.trim + trim * TRIM_RATE * dt, -1, 1);    // the assist trims by itself
 
 	// hold the left thumbstick button = next start position. Right = start again.
 	game.holdLeft = holdL ? game.holdLeft + dt : 0;
@@ -313,7 +491,7 @@ function startSound() {
 	snd.eng1.start();
 	snd.eng2.start();
 
-	// wind and tires: noise
+	// wind, tires and rotor: noise
 	var buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
 	data = buf.getChannelData(0);
 	for (i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -336,6 +514,26 @@ function startSound() {
 	snd.noise.connect(snd.tireFilter);
 	snd.tireFilter.connect(snd.tireGain);
 	snd.tireGain.connect(snd.master);
+
+	// rotor: low noise that pulses 13 times each second (the blades)
+	snd.rotorFilter = ctx.createBiquadFilter();
+	snd.rotorFilter.type = 'lowpass';
+	snd.rotorFilter.frequency.value = 260;
+	snd.rotorPulse = ctx.createGain();
+	snd.rotorPulse.gain.value = 0.5;
+	snd.rotorLfo = ctx.createOscillator();
+	snd.rotorLfo.frequency.value = 13;
+	snd.rotorDepth = ctx.createGain();
+	snd.rotorDepth.gain.value = 0.5;
+	snd.rotorLfo.connect(snd.rotorDepth);
+	snd.rotorDepth.connect(snd.rotorPulse.gain);
+	snd.rotorGain = ctx.createGain();
+	snd.rotorGain.gain.value = 0;
+	snd.noise.connect(snd.rotorFilter);
+	snd.rotorFilter.connect(snd.rotorPulse);
+	snd.rotorPulse.connect(snd.rotorGain);
+	snd.rotorGain.connect(snd.master);
+	snd.rotorLfo.start();
 	snd.noise.start();
 
 	// stall warning
@@ -359,7 +557,8 @@ function updateSound() {
 	snd.eng1.frequency.setTargetAtTime(f, t, 0.05);
 	snd.eng2.frequency.setTargetAtTime(f / 2, t, 0.05);
 	snd.engFilter.frequency.setTargetAtTime(260 + p.power * 700, t, 0.05);
-	snd.engGain.gain.setTargetAtTime(quiet * (0.1 + 0.22 * p.power), t, 0.05);
+	snd.engGain.gain.setTargetAtTime(quiet * (AC.heli ? 0.1 : 0.1 + 0.22 * p.power), t, 0.05);
+	snd.rotorGain.gain.setTargetAtTime(quiet * (AC.heli ? 0.6 + 0.5 * p.power : 0), t, 0.1);
 	snd.windGain.gain.setTargetAtTime(quiet * clamp(p.ias * p.ias / 3600, 0, 1.4) * 0.3, t, 0.1);
 	snd.hornGain.gain.setTargetAtTime(quiet * p.stall * 0.07, t, 0.02);
 	if (p.touchTime !== snd.lastTouch) {
@@ -411,10 +610,11 @@ function updateHud(dt) {
 	var vs = Math.round(p.vel.y * 196.85 / 10) * 10;
 	hud.textContent =
 		'IAS ' + pad3(Math.round(p.ias * KT)) + ' kt   ALT ' + Math.round(p.pos.y * FT / 10) * 10 + ' ft   VS ' + (vs >= 0 ? '+' : '') + vs +
-		'   HDG ' + pad3(hdg === 0 ? 360 : hdg) + '   PWR ' + Math.round(p.thr * 100) + '%   RPM ' + Math.round(p.rpm / 10) * 10 +
+		'   HDG ' + pad3(hdg === 0 ? 360 : hdg) + (AC.heli ? '   LEVER ' : '   PWR ') + Math.round(p.thr * 100) + '%   RPM ' + Math.round(p.rpm / 10) * 10 +
 		'   FLAPS ' + Math.round(p.flaps * 10) + '   TRIM ' + (p.trim >= 0 ? '+' : '') + Math.round(p.trim * 10) +
 		(ctl.brake > 0 ? '   BRAKE' : '');
-	note.textContent = game.message !== '' ? game.message : AIRPORTS[st.ap].name + (st.kind ? ' approach' : ' runway');
+	note.textContent = AC.name + (opt.assist ? ' + ASSIST' : '') + '   ' +
+		(game.message !== '' ? game.message : AIRPORTS[st.ap].name + (st.kind ? ' approach' : ' runway'));
 	note.style.color = game.warn ? '#ff8a7a' : '#e8ede8';
 }
 
@@ -422,11 +622,13 @@ function updateHud(dt) {
 
 var _look = new THREE.Vector3();
 var _back = new THREE.Vector3();
+var _yawQ = new THREE.Quaternion();
+var _up = new THREE.Vector3(0, 1, 0);
 
 function setChase(on) {
 	if (renderer.xr.isPresenting) on = 0;
 	game.chase = on;
-	setOpenView(game.open, on);
+	setOpenView(opt.open, on);
 	if (on) {
 		scene.add(camera);
 		_back.set(0, 0, 1).applyQuaternion(plane.quat);
@@ -440,9 +642,17 @@ function setChase(on) {
 }
 
 function updateCamera(dt) {
+	// Level view: your head position turns with the direction of the nose only.
+	// It does not roll and it does not pitch, thus the horizon stays level. The aircraft tilts around you.
+	if (opt.level) {
+		_yawQ.setFromAxisAngle(_up, -att.hdg);
+		parts.rig.quaternion.copy(plane.quat).invert().multiply(_yawQ);
+	} else {
+		parts.rig.quaternion.set(0, 0, 0, 1);
+	}
 	if (renderer.xr.isPresenting) return;
 	if (game.chase) {
-		// behind the airplane, level with the horizon
+		// behind the aircraft, level with the horizon
 		_back.set(0, 0, 1).applyQuaternion(plane.quat);
 		_back.y = 0;
 		_back.normalize();
@@ -452,7 +662,7 @@ function updateCamera(dt) {
 		camera.position.y = Math.max(camera.position.y, groundAt(camera.position.x, camera.position.z) + 1);
 		camera.lookAt(plane.pos);
 	} else {
-		camera.rotation.set(game.open ? 0.02 : -0.12, game.lookYaw * 1.5, 0, 'YXZ');
+		camera.rotation.set(opt.open ? 0.02 : -0.12, game.lookYaw * 1.5, 0, 'YXZ');
 	}
 }
 
@@ -460,12 +670,12 @@ function updateCamera(dt) {
 
 var lastTime = 0;
 
-function frame(time) {
+function frame(time, xrFrame) {
 	var dt = clamp((time - lastTime) / 1000, 0.001, 0.05);
 	var steps = 0;
 	lastTime = time;
 
-	readInput(dt);
+	readInput(dt, xrFrame || null);
 
 	if (!game.paused && plane.crashed === '') {
 		game.acc += dt;
@@ -490,6 +700,10 @@ function frame(time) {
 	updateAttitude();
 	updateMessage();
 	updateAirplane(dt, game.message, game.warn);
+	if (game.hubDirty) {
+		game.hubDirty = 0;
+		drawHub(hubLines(), game.hubHover);
+	}
 	updateWorld(dt, plane.pos.x, plane.pos.y, plane.pos.z);
 	updateCamera(dt);
 	updateSound();

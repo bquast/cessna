@@ -1,11 +1,12 @@
-// cockpit.js - the airplane model, the instrument panel, the shadow.
+// cockpit.js - the three aircraft models, the instrument panel, the options hub, the shadow.
 // Classic script. It uses THREE, world.js and flight.js.
 //
 // main.js calls makeAirplane() one time and updateAirplane() each frame.
 // The model is in body axes: +x = right, +y = up, -z = forward. The origin is the center of gravity.
 //
 // Order of this file:
-//   constants, shape helpers, airplane, dial helpers, instruments, open view, map screen, shadow, update.
+//   constants, shape helpers, aircraft bodies, dial helpers, instruments, options hub, open view,
+//   map screen, shadow, update.
 
 // ---------- constants ----------
 
@@ -14,11 +15,14 @@ var PANEL_Z = -0.57;     // the face of the instrument panel
 var MAP_RANGE = 14000;   // meters across the map screen
 var OPEN_ANGLE = 24;     // open view: the instrument board is this many degrees above the horizon
 var OPEN_DIST = 0.8;     // open view: distance from the eye to the board, m
-var BOARD_W = 0.72, BOARD_H = 0.25;                  // size of the board
-var BOARD_X = EYE.x + 0.186, BOARD_Y = 0.083;        // center of the instruments on the panel
+var BOARD_W = 0.94, BOARD_H = 0.25;                  // size of the board
+var BOARD_X = EYE.x + 0.296, BOARD_Y = 0.083;        // center of the instruments on the panel
+var HUB_ROWS = 7;        // lines of the options hub
 
-var parts = {};          // the parts that move
+var parts = { open: 0, outside: 0 };   // the parts that move
+var MAT = null;          // the materials of the aircraft bodies
 var mapScreen = { canvas: null, g: null, texture: null, time: 0 };
+var hub = { canvas: null, g: null, texture: null };
 
 // ---------- shape helpers ----------
 
@@ -81,20 +85,63 @@ function surface(parent, mat, w, chord, x, y, z) {
 
 function makeAirplane(scene) {
 	var root = new THREE.Group();
-	var white = lambert(0xe6e3da);
-	var accent = lambert(0x3d5f7c);
-	var dark = lambert(0x2b2d31);
-	var seat = lambert(0x4b4138);
-	var metal = lambert(0x8d9093);
-	var tire = lambert(0x18181a);
-	var s, g;
-	white.side = THREE.DoubleSide;
-	accent.side = THREE.DoubleSide;
+	var k;
 	parts.root = root;
-	// the body is all that you can hide in the open view
+	MAT = {
+		white: lambert(0xe6e3da), accent: lambert(0x3d5f7c), dark: lambert(0x2b2d31), seat: lambert(0x4b4138),
+		metal: lambert(0x8d9093), tire: lambert(0x18181a), sail: lambert(0xc9793a),
+		disc: new THREE.MeshBasicMaterial({ color: 0x1c1c1c, transparent: true, opacity: 0.06, side: THREE.DoubleSide, depthWrite: false })
+	};
+	MAT.white.side = THREE.DoubleSide;
+	MAT.accent.side = THREE.DoubleSide;
+	MAT.sail.side = THREE.DoubleSide;
+
+	// one body for each aircraft. Only the body of the aircraft that you fly is in view.
+	parts.bodies = [makeCessna(), makeDelta(), makeHeli()];
+	for (k = 0; k < parts.bodies.length; k++) {
+		parts.bodies[k].visible = false;
+		root.add(parts.bodies[k]);
+	}
+	parts.body = parts.bodies[0];
+
+	parts.panel = new THREE.Group();
+	root.add(parts.panel);
+	makeInstruments(parts.panel);
+
+	// the place of the head. main.js puts the camera into this group.
+	parts.rig = new THREE.Group();
+	parts.rig.position.copy(EYE);
+	root.add(parts.rig);
+
+	scene.add(root);
+	makeShadow(scene);
+}
+
+function makeSeats(body, x) {
+	box(body, MAT.seat, 0.44, 0.1, 0.46, x, -0.27, 0.3);
+	box(body, MAT.seat, 0.44, 0.6, 0.08, x, 0.05, 0.58);
+}
+
+function makeWheel(body, x, y, z) {
+	var geo = new THREE.CylinderGeometry(0.2, 0.2, 0.13, 12);
+	geo.rotateZ(Math.PI / 2);
+	var m = new THREE.Mesh(geo, MAT.tire);
+	m.position.set(x, y, z);
+	body.add(m);
+}
+
+// a disc that you can see through: a propeller or a rotor that turns
+function makeDisc(body, radius, x, y, z) {
+	var m = new THREE.Mesh(new THREE.CircleGeometry(radius, 28), MAT.disc.clone());
+	m.position.set(x, y, z);
+	body.add(m);
+	return m;
+}
+
+function makeCessna() {
 	var body = new THREE.Group();
-	parts.body = body;
-	root.add(body);
+	var white = MAT.white, accent = MAT.accent, dark = MAT.dark, metal = MAT.metal;
+	var s, g;
 
 	// nose and engine cover
 	hull(body, white, -2.3, 0.62, -0.42, 0.0, -0.62, 1.12, -0.55, 0.15);
@@ -103,11 +150,7 @@ function makeAirplane(scene) {
 	g.rotation.x = -Math.PI / 2;
 	g.position.set(0, -0.2, -2.45);
 	body.add(g);
-	parts.prop = new THREE.Mesh(new THREE.CircleGeometry(0.95, 28), new THREE.MeshBasicMaterial({
-		color: 0x1c1c1c, transparent: true, opacity: 0.06, side: THREE.DoubleSide, depthWrite: false
-	}));
-	parts.prop.position.set(0, -0.2, -2.4);
-	body.add(parts.prop);
+	parts.prop = makeDisc(body, 0.95, 0, -0.2, -2.4);
 	// two blades. You see them only at low engine speed.
 	parts.blades = box(body, new THREE.MeshBasicMaterial({ color: 0x1c1c1c, transparent: true, opacity: 0.5, depthWrite: false }),
 		0.14, 1.86, 0.02, 0, -0.2, -2.41);
@@ -121,16 +164,13 @@ function makeAirplane(scene) {
 	box(body, dark, 1.12, 1.42, 0.04, 0, 0.16, 1.4);
 	box(body, dark, 1.12, 0.77, 0.05, 0, -0.165, PANEL_Z - 0.025);       // instrument panel
 	box(body, dark, 1.14, 0.025, 0.1, 0, 0.225, PANEL_Z);                // cover above the panel
-	// thin posts. They are a fixed reference for your eyes.
+	// thin posts
 	rod(body, white, 0.016, -0.56, 0.2, -0.6, -0.54, 0.87, -0.28);
 	rod(body, white, 0.016, 0.56, 0.2, -0.6, 0.54, 0.87, -0.28);
 	rod(body, white, 0.018, -0.56, 0.0, 0.75, -0.55, 0.87, 0.75);
 	rod(body, white, 0.018, 0.56, 0.0, 0.75, 0.55, 0.87, 0.75);
-	// seats
-	for (s = -1; s <= 1; s += 2) {
-		box(body, seat, 0.44, 0.1, 0.46, s * 0.27, -0.27, 0.3);
-		box(body, seat, 0.44, 0.6, 0.08, s * 0.27, 0.05, 0.58);
-	}
+	makeSeats(body, -0.27);
+	makeSeats(body, 0.27);
 
 	// wing, struts, flaps, ailerons
 	box(body, white, 11.0, 0.16, 1.25, 0, 0.95, 0.325);
@@ -158,22 +198,16 @@ function makeAirplane(scene) {
 	rod(body, white, 0.04, -0.5, -0.5, 0.45, -1.27, -1.0, 0.45);
 	rod(body, white, 0.04, 0.5, -0.5, 0.45, 1.27, -1.0, 0.45);
 	rod(body, metal, 0.03, 0, -0.45, -1.25, 0, -1.0, -1.25);
-	var wheel = new THREE.CylinderGeometry(0.2, 0.2, 0.13, 12);
-	wheel.rotateZ(Math.PI / 2);
-	for (s = 0; s < 3; s++) {
-		g = new THREE.Mesh(wheel, tire);
-		g.position.set(WHEELS[s].x, -1.0, WHEELS[s].z);
-		body.add(g);
-	}
+	for (s = 0; s < 3; s++) makeWheel(body, CESSNA.wheels[s].x, -1.0, CESSNA.wheels[s].z);
 
-	// yoke: it moves with your pitch and roll inputs
+	// yoke: it moves with the elevator and the ailerons
 	parts.yoke = new THREE.Group();
 	parts.yoke.position.set(EYE.x, -0.09, PANEL_Z + 0.2);
 	rod(parts.yoke, metal, 0.012, 0, 0, -0.25, 0, 0, 0);
 	box(parts.yoke, dark, 0.26, 0.03, 0.03, 0, 0, 0);
 	box(parts.yoke, dark, 0.03, 0.1, 0.03, -0.13, 0.04, 0);
 	box(parts.yoke, dark, 0.03, 0.1, 0.03, 0.13, 0.04, 0);
-	root.add(parts.yoke);
+	body.add(parts.yoke);
 
 	// throttle knob: in = full power
 	parts.throttle = new THREE.Group();
@@ -184,18 +218,84 @@ function makeAirplane(scene) {
 	g.position.z = 0.03;
 	parts.throttle.add(g);
 	body.add(parts.throttle);
+	return body;
+}
 
-	parts.panel = new THREE.Group();
-	root.add(parts.panel);
-	makeInstruments(parts.panel);
+// a powered delta wing (a trike). The pilot is in the middle: the sail is above the head,
+// the control bar is in front of the chest, the engine and the propeller are behind.
+function makeDelta() {
+	var body = new THREE.Group();
+	var white = MAT.white, metal = MAT.metal, dark = MAT.dark;
+	var apex = [0, 1.95, -1.9], left = [-5, 1.55, 1.3], right = [5, 1.55, 1.3], rear = [0, 1.62, 1.0];
+	var geo, s;
+	body.position.x = EYE.x;        // the eye is 0.27 m left of the origin, thus the body moves with it
 
-	// the place of the head. main.js puts the camera into this group.
-	parts.rig = new THREE.Group();
-	parts.rig.position.copy(EYE);
-	root.add(parts.rig);
+	geo = new THREE.BufferGeometry();
+	geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(apex.concat(left, rear, apex, rear, right)), 3));
+	geo.computeVertexNormals();
+	body.add(new THREE.Mesh(geo, MAT.sail));
+	rod(body, white, 0.035, apex[0], apex[1], apex[2], left[0], left[1], left[2]);
+	rod(body, white, 0.035, apex[0], apex[1], apex[2], right[0], right[1], right[2]);
+	rod(body, metal, 0.03, apex[0], apex[1], apex[2], 0, 1.6, 1.9);                // keel
+	rod(body, metal, 0.03, 0, -0.35, 0.78, 0, 1.68, 0.45);                         // mast
+	// control frame and bar
+	rod(body, metal, 0.016, 0, 1.68, 0.2, -0.75, 0.12, -0.5);
+	rod(body, metal, 0.016, 0, 1.68, 0.2, 0.75, 0.12, -0.5);
+	rod(body, dark, 0.02, -0.75, 0.12, -0.5, 0.75, 0.12, -0.5);
+	// low body below the legs, seat, engine
+	hull(body, white, -1.7, 0.3, -0.75, -0.5, 0.9, 0.7, -0.75, -0.3);
+	makeSeats(body, 0);
+	box(body, dark, 0.4, 0.4, 0.5, 0, 0.1, 1.05);
+	parts.deltaProp = makeDisc(body, 0.8, 0, 0.2, 1.4);
+	// wheels
+	rod(body, metal, 0.03, 0, -0.5, -1.3, 0, -0.8, -1.3);
+	rod(body, metal, 0.03, -0.85, -0.8, 0.45, 0.85, -0.8, 0.45);
+	for (s = 0; s < 3; s++) makeWheel(body, DELTA.wheels[s].x, -0.8, DELTA.wheels[s].z);
+	return body;
+}
 
-	scene.add(root);
-	makeShadow(scene);
+// a light helicopter with skids. The cabin is open: floor, roof, back wall and thin posts.
+function makeHeli() {
+	var body = new THREE.Group();
+	var white = MAT.white, accent = MAT.accent, metal = MAT.metal, dark = MAT.dark;
+	var s;
+	box(body, dark, 1.3, 0.05, 2.2, 0, -0.57, 0.2);                                // floor
+	hull(body, white, -1.6, 0.5, -0.57, -0.3, -0.9, 1.3, -0.6, -0.12);             // low nose
+	box(body, accent, 0.03, 0.3, 2.2, -0.65, -0.42, 0.2);
+	box(body, accent, 0.03, 0.3, 2.2, 0.65, -0.42, 0.2);
+	box(body, dark, 1.3, 1.72, 0.05, 0, 0.29, 1.28);                               // back wall
+	box(body, white, 1.3, 0.06, 1.7, 0, 1.15, 0.45);                               // roof
+	rod(body, white, 0.016, -0.65, -0.27, -0.9, -0.62, 1.12, -0.38);
+	rod(body, white, 0.016, 0.65, -0.27, -0.9, 0.62, 1.12, -0.38);
+	box(body, dark, 0.3, 0.5, 0.2, BOARD_X, -0.3, PANEL_Z - 0.1);                  // foot of the instrument board
+	makeSeats(body, -0.27);
+	makeSeats(body, 0.27);
+	// rotor
+	rod(body, metal, 0.05, 0, 1.15, 0.4, 0, 1.75, 0.4);
+	parts.rotor = makeDisc(body, 3.8, 0, 1.75, 0.4);
+	parts.rotor.rotation.x = -Math.PI / 2;
+	parts.rotorBlades = box(body, new THREE.MeshBasicMaterial({ color: 0x1c1c1c, transparent: true, opacity: 0.35, depthWrite: false }),
+		7.6, 0.02, 0.22, 0, 1.76, 0.4);
+	// tail
+	hull(body, white, 1.28, 0.5, 0.1, 0.75, 5.9, 0.12, 0.45, 0.6);
+	hull(body, accent, 5.3, 0.05, 0.1, 0.6, 6.0, 0.05, 0.3, 1.35);
+	s = makeDisc(body, 0.55, 0.12, 0.72, 5.85);
+	s.rotation.y = Math.PI / 2;
+	// skids
+	for (s = -1; s <= 1; s += 2) {
+		rod(body, metal, 0.03, s * 0.95, -1.22, -1.4, s * 0.95, -1.22, 1.5);
+		rod(body, metal, 0.025, s * 0.55, -0.57, -0.7, s * 0.95, -1.22, -0.8);
+		rod(body, metal, 0.025, s * 0.55, -0.57, 0.9, s * 0.95, -1.22, 1.0);
+	}
+	return body;
+}
+
+// show the body of one aircraft
+function setBody(type) {
+	var k;
+	for (k = 0; k < parts.bodies.length; k++) parts.bodies[k].visible = false;
+	parts.body = parts.bodies[type];
+	setOpenView(parts.open, parts.outside);
 }
 
 // ---------- dial helpers ----------
@@ -413,7 +513,7 @@ function makeInstruments(root) {
 	});
 	parts.rpm = makeNeedle(d, 0.04, 0.035, 0.005);
 
-	// control indicator: it shows your inputs, because you cannot see the yoke in the open view.
+	// control indicator: it shows your stick inputs
 	// Orange dot = yoke (down = pull). Bottom mark = rudder. Left mark = trim.
 	d = makeDial(root, EYE.x + 0.235, y0, 0.04, function (g) {
 		g.strokeStyle = '#8a8e92';
@@ -456,36 +556,69 @@ function makeInstruments(root) {
 	root.add(m);
 	box(root, lambert(0x17181a), 0.225, 0.225, 0.006, EYE.x + 0.415, 0.085, PANEL_Z - 0.001);
 
-	// a small board behind the instruments. You see it only in the open view.
+	// the options hub: a list of options at the right of the map screen.
+	// You point at a line with a controller and pull the trigger. main.js draws the text.
+	hub.canvas = document.createElement('canvas');
+	hub.canvas.width = 256;
+	hub.canvas.height = 256;
+	hub.g = hub.canvas.getContext('2d');
+	hub.texture = canvasTexture(hub.canvas);
+	parts.hub = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.21), new THREE.MeshBasicMaterial({ map: hub.texture }));
+	parts.hub.position.set(EYE.x + 0.6425, 0.085, PANEL_Z + 0.004);
+	root.add(parts.hub);
+
+	// a small board behind the instruments. The Cessna cockpit has its own panel, thus it does not show there.
 	parts.board = box(root, lambert(0x2b2d31), BOARD_W, BOARD_H, 0.05, BOARD_X, BOARD_Y, PANEL_Z - 0.025);
 	parts.board.visible = false;
 }
 
 // ---------- open view ----------
 
-// Open view: no airplane body and no yoke. The instruments are on a small board above your
-// forward view. Thus you can see the ground below and around you.
+// Open view: no aircraft body. The instruments are on a small board above your forward view.
+// Thus you can see the ground below and around you.
+// The board is attached to your head position (the rig). With the level view it stays level with you.
 var _boardAt = new THREE.Vector3();
 
 function setOpenView(on, outside) {
 	var e = OPEN_ANGLE * Math.PI / 180;
 	parts.open = on;
+	parts.outside = outside;
 	// three.js needs true or false here, not 1 or 0
-	parts.body.visible = on ? (outside ? true : false) : true;    // the outside view always shows the airplane
-	parts.board.visible = on ? true : false;
-	parts.yoke.visible = parts.body.visible;  // the control indicator on the board replaces the yoke
+	parts.body.visible = on ? (outside ? true : false) : true;    // the outside view always shows the aircraft
+	parts.board.visible = (on || plane.type !== 0) ? true : false;
 	if (on) {
 		// turn the board to the eye, then move its center to the point above the forward view
+		parts.rig.add(parts.panel);
 		parts.panel.rotation.set(e, 0, 0);
 		_boardAt.set(BOARD_X, BOARD_Y, PANEL_Z).applyEuler(parts.panel.rotation);
-		parts.panel.position.set(
-			EYE.x - _boardAt.x,
-			EYE.y + OPEN_DIST * Math.sin(e) - _boardAt.y,
-			EYE.z - OPEN_DIST * Math.cos(e) - _boardAt.z);
+		parts.panel.position.set(-_boardAt.x, OPEN_DIST * Math.sin(e) - _boardAt.y, -OPEN_DIST * Math.cos(e) - _boardAt.z);
 	} else {
+		parts.root.add(parts.panel);
 		parts.panel.rotation.set(0, 0, 0);
 		parts.panel.position.set(0, 0, 0);
 	}
+}
+
+// draw the options hub. lines: array of [label, value]. hover: the line below the pointer, or -1.
+function drawHub(lines, hover) {
+	var g = hub.g;
+	var h = 256 / HUB_ROWS;
+	var k;
+	g.fillStyle = '#15171a';
+	g.fillRect(0, 0, 256, 256);
+	g.font = 'bold 15px monospace';
+	g.textBaseline = 'middle';
+	for (k = 0; k < lines.length; k++) {
+		g.fillStyle = k === hover ? '#3d6f9c' : (k % 2 ? '#1f2226' : '#262a2f');
+		g.fillRect(3, k * h + 2, 250, h - 4);
+		g.fillStyle = '#aab2b8';
+		g.textAlign = 'left';
+		g.fillText(lines[k][0], 10, k * h + h / 2 + 1);
+		g.fillStyle = '#ffffff';
+		g.textAlign = 'right';
+		g.fillText(lines[k][1], 246, k * h + h / 2 + 1);
+	}
+	hub.texture.needsUpdate = true;
 }
 
 // ---------- map screen ----------
@@ -564,7 +697,9 @@ function drawMapScreen(message, warn) {
 	g.textAlign = 'left';
 	g.textBaseline = 'middle';
 	g.fillText(ap.name + '  ' + ('00' + brg).slice(-3) + '°  ' + dist.toFixed(1) + ' NM', 6, 16);
-	txt = 'FLAP ' + Math.round(p.flaps * 10) + '  TRIM ' + (p.trim >= 0 ? '+' : '') + Math.round(p.trim * 10) + '  PWR ' + Math.round(p.thr * 100);
+	txt = (AC.heli ? 'LEVER ' : 'PWR ') + Math.round(p.thr * 100);
+	if (!AC.heli) txt = 'TRIM ' + (p.trim >= 0 ? '+' : '') + Math.round(p.trim * 10) + '  ' + txt;
+	if (p.type === 0) txt = 'FLAP ' + Math.round(p.flaps * 10) + '  ' + txt;
 	g.fillText(txt, 6, 242);
 	if (message !== '') {
 		g.fillStyle = warn ? 'rgba(170,20,10,0.9)' : 'rgba(0,0,0,0.7)';
@@ -615,21 +750,26 @@ function updateAirplane(dt, message, warn) {
 	root.position.copy(p.pos);
 	root.quaternion.copy(p.quat);
 
-	// control surfaces
-	parts.elevator.rotation.x = -(p.elev * A.maxElev + p.trim * A.maxTrim);
-	parts.rudder.rotation.y = p.rud * A.maxRud;
-	parts.ailL.rotation.x = p.ail * A.maxAil;
-	parts.ailR.rotation.x = -p.ail * A.maxAil;
-	parts.flapL.rotation.x = p.flaps * 10 * deg;
-	parts.flapR.rotation.x = p.flaps * 10 * deg;
-	parts.yoke.position.z = PANEL_Z + 0.2 + p.elev * 0.07;
-	parts.yoke.rotation.z = -p.ail * 1.1;
-	parts.throttle.position.z = PANEL_Z + 0.09 * (1 - p.thr);
-
-	// propeller: a disc at high speed, blades at low speed
-	parts.blades.rotation.z += p.rpm / 60 * Math.PI * 2 * dt * 0.13;   // slow, thus the blades do not flicker
-	parts.blades.material.opacity = clamp(0.55 - p.power * 2, 0.08, 0.55);
-	parts.prop.material.opacity = 0.03 + 0.05 * clamp(p.power * 3, 0, 1);
+	if (p.type === 0) {
+		// control surfaces
+		parts.elevator.rotation.x = -(p.elev * A.maxElev + p.trim * A.maxTrim);
+		parts.rudder.rotation.y = p.rud * A.maxRud;
+		parts.ailL.rotation.x = p.ail * A.maxAil;
+		parts.ailR.rotation.x = -p.ail * A.maxAil;
+		parts.flapL.rotation.x = p.flaps * 10 * deg;
+		parts.flapR.rotation.x = p.flaps * 10 * deg;
+		parts.yoke.position.z = PANEL_Z + 0.2 + p.elev * 0.07;
+		parts.yoke.rotation.z = -p.ail * 1.1;
+		parts.throttle.position.z = PANEL_Z + 0.09 * (1 - p.thr);
+		// propeller: a disc at high speed, blades at low speed
+		parts.blades.rotation.z += p.rpm / 60 * Math.PI * 2 * dt * 0.13;   // slow, thus the blades do not flicker
+		parts.blades.material.opacity = clamp(0.55 - p.power * 2, 0.08, 0.55);
+		parts.prop.material.opacity = 0.03 + 0.05 * clamp(p.power * 3, 0, 1);
+	} else if (p.type === 1) {
+		parts.deltaProp.material.opacity = 0.05 + 0.08 * clamp(p.power * 3, 0, 1);
+	} else {
+		parts.rotorBlades.rotation.y += 2.2 * dt;                          // slow, thus the blades do not flicker
+	}
 
 	// instruments
 	kt = p.ias * KT;
@@ -643,9 +783,9 @@ function updateAirplane(dt, message, warn) {
 	parts.turn.rotation.z = -clamp(p.turnRate / (3 * deg) * 20 * deg, -0.7, 0.7);
 	parts.ball.position.x = clamp(p.ball / 0.12, -1, 1) * parts.ballRange;
 	parts.rpm.rotation.z = -(225 + p.rpm / 3500 * 270) * deg;
-	parts.ctlDot.position.x = p.ail * parts.ctlRange;
-	parts.ctlDot.position.y = -p.elev * parts.ctlRange;
-	parts.ctlRud.position.x = p.rud * parts.ctlRange;
+	parts.ctlDot.position.x = ctl.roll * parts.ctlRange;       // your inputs, not the control surfaces
+	parts.ctlDot.position.y = -ctl.pitch * parts.ctlRange;
+	parts.ctlRud.position.x = ctl.yaw * parts.ctlRange;
 	parts.ctlTrim.position.y = -p.trim * parts.ctlRange;
 	// You see the ball from the outside. Thus pitch turns it in the direction opposite to the
 	// airplane (nose up = more blue at the symbol), and bank keeps the line level with the horizon.
@@ -660,7 +800,7 @@ function updateAirplane(dt, message, warn) {
 
 	// shadow on the ground, in the direction away from the sun
 	gy = groundAt(p.pos.x, p.pos.z);
-	h = p.pos.y - 1.1 - gy;
+	h = p.pos.y - AC.cg - gy;
 	if (h < 400) {
 		parts.shadow.visible = true;
 		k = h / SUN_DIR.y;
