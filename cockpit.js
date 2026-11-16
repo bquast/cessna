@@ -5,13 +5,17 @@
 // The model is in body axes: +x = right, +y = up, -z = forward. The origin is the center of gravity.
 //
 // Order of this file:
-//   constants, shape helpers, airplane, dial helpers, instruments, map screen, shadow, update.
+//   constants, shape helpers, airplane, dial helpers, instruments, open view, map screen, shadow, update.
 
 // ---------- constants ----------
 
 var EYE = new THREE.Vector3(-0.27, 0.45, 0.25);   // the eye of the pilot, in body axes
 var PANEL_Z = -0.57;     // the face of the instrument panel
 var MAP_RANGE = 14000;   // meters across the map screen
+var OPEN_ANGLE = 24;     // open view: the instrument board is this many degrees above the horizon
+var OPEN_DIST = 0.8;     // open view: distance from the eye to the board, m
+var BOARD_W = 0.72, BOARD_H = 0.25;                  // size of the board
+var BOARD_X = EYE.x + 0.186, BOARD_Y = 0.083;        // center of the instruments on the panel
 
 var parts = {};          // the parts that move
 var mapScreen = { canvas: null, g: null, texture: null, time: 0 };
@@ -87,75 +91,79 @@ function makeAirplane(scene) {
 	white.side = THREE.DoubleSide;
 	accent.side = THREE.DoubleSide;
 	parts.root = root;
+	// the body is all that you can hide in the open view
+	var body = new THREE.Group();
+	parts.body = body;
+	root.add(body);
 
 	// nose and engine cover
-	hull(root, white, -2.3, 0.62, -0.42, 0.0, -0.62, 1.12, -0.55, 0.15);
-	hull(root, accent, -2.32, 0.5, -0.3, -0.1, -2.3, 0.62, -0.42, 0.0);
+	hull(body, white, -2.3, 0.62, -0.42, 0.0, -0.62, 1.12, -0.55, 0.15);
+	hull(body, accent, -2.32, 0.5, -0.3, -0.1, -2.3, 0.62, -0.42, 0.0);
 	g = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 10), metal);
 	g.rotation.x = -Math.PI / 2;
 	g.position.set(0, -0.2, -2.45);
-	root.add(g);
+	body.add(g);
 	parts.prop = new THREE.Mesh(new THREE.CircleGeometry(0.95, 28), new THREE.MeshBasicMaterial({
 		color: 0x1c1c1c, transparent: true, opacity: 0.06, side: THREE.DoubleSide, depthWrite: false
 	}));
 	parts.prop.position.set(0, -0.2, -2.4);
-	root.add(parts.prop);
+	body.add(parts.prop);
 	// two blades. You see them only at low engine speed.
-	parts.blades = box(root, new THREE.MeshBasicMaterial({ color: 0x1c1c1c, transparent: true, opacity: 0.5, depthWrite: false }),
+	parts.blades = box(body, new THREE.MeshBasicMaterial({ color: 0x1c1c1c, transparent: true, opacity: 0.5, depthWrite: false }),
 		0.14, 1.86, 0.02, 0, -0.2, -2.41);
 
 	// cabin: floor, sides, back wall, panel. The windows are open.
-	box(root, dark, 1.12, 0.04, 2.0, 0, -0.55, 0.39);
-	box(root, white, 0.03, 0.57, 2.0, -0.565, -0.27, 0.39);
-	box(root, white, 0.03, 0.57, 2.0, 0.565, -0.27, 0.39);
-	box(root, accent, 0.035, 0.1, 2.0, -0.567, -0.2, 0.39);
-	box(root, accent, 0.035, 0.1, 2.0, 0.567, -0.2, 0.39);
-	box(root, dark, 1.12, 1.42, 0.04, 0, 0.16, 1.4);
-	box(root, dark, 1.12, 0.77, 0.05, 0, -0.165, PANEL_Z - 0.025);       // instrument panel
-	box(root, dark, 1.14, 0.025, 0.1, 0, 0.225, PANEL_Z);                // cover above the panel
+	box(body, dark, 1.12, 0.04, 2.0, 0, -0.55, 0.39);
+	box(body, white, 0.03, 0.57, 2.0, -0.565, -0.27, 0.39);
+	box(body, white, 0.03, 0.57, 2.0, 0.565, -0.27, 0.39);
+	box(body, accent, 0.035, 0.1, 2.0, -0.567, -0.2, 0.39);
+	box(body, accent, 0.035, 0.1, 2.0, 0.567, -0.2, 0.39);
+	box(body, dark, 1.12, 1.42, 0.04, 0, 0.16, 1.4);
+	box(body, dark, 1.12, 0.77, 0.05, 0, -0.165, PANEL_Z - 0.025);       // instrument panel
+	box(body, dark, 1.14, 0.025, 0.1, 0, 0.225, PANEL_Z);                // cover above the panel
 	// thin posts. They are a fixed reference for your eyes.
-	rod(root, white, 0.016, -0.56, 0.2, -0.6, -0.54, 0.87, -0.28);
-	rod(root, white, 0.016, 0.56, 0.2, -0.6, 0.54, 0.87, -0.28);
-	rod(root, white, 0.018, -0.56, 0.0, 0.75, -0.55, 0.87, 0.75);
-	rod(root, white, 0.018, 0.56, 0.0, 0.75, 0.55, 0.87, 0.75);
+	rod(body, white, 0.016, -0.56, 0.2, -0.6, -0.54, 0.87, -0.28);
+	rod(body, white, 0.016, 0.56, 0.2, -0.6, 0.54, 0.87, -0.28);
+	rod(body, white, 0.018, -0.56, 0.0, 0.75, -0.55, 0.87, 0.75);
+	rod(body, white, 0.018, 0.56, 0.0, 0.75, 0.55, 0.87, 0.75);
 	// seats
 	for (s = -1; s <= 1; s += 2) {
-		box(root, seat, 0.44, 0.1, 0.46, s * 0.27, -0.27, 0.3);
-		box(root, seat, 0.44, 0.6, 0.08, s * 0.27, 0.05, 0.58);
+		box(body, seat, 0.44, 0.1, 0.46, s * 0.27, -0.27, 0.3);
+		box(body, seat, 0.44, 0.6, 0.08, s * 0.27, 0.05, 0.58);
 	}
 
 	// wing, struts, flaps, ailerons
-	box(root, white, 11.0, 0.16, 1.25, 0, 0.95, 0.325);
-	box(root, accent, 0.3, 0.165, 1.26, -5.36, 0.95, 0.325);
-	box(root, accent, 0.3, 0.165, 1.26, 5.36, 0.95, 0.325);
-	rod(root, white, 0.035, -0.56, -0.45, 0.25, -2.5, 0.88, 0.35);
-	rod(root, white, 0.035, 0.56, -0.45, 0.25, 2.5, 0.88, 0.35);
-	parts.flapL = surface(root, white, 2.25, 0.3, -1.72, 0.93, 0.95);
-	parts.flapR = surface(root, white, 2.25, 0.3, 1.72, 0.93, 0.95);
-	parts.ailL = surface(root, white, 2.35, 0.3, -4.04, 0.93, 0.95);
-	parts.ailR = surface(root, white, 2.35, 0.3, 4.04, 0.93, 0.95);
+	box(body, white, 11.0, 0.16, 1.25, 0, 0.95, 0.325);
+	box(body, accent, 0.3, 0.165, 1.26, -5.36, 0.95, 0.325);
+	box(body, accent, 0.3, 0.165, 1.26, 5.36, 0.95, 0.325);
+	rod(body, white, 0.035, -0.56, -0.45, 0.25, -2.5, 0.88, 0.35);
+	rod(body, white, 0.035, 0.56, -0.45, 0.25, 2.5, 0.88, 0.35);
+	parts.flapL = surface(body, white, 2.25, 0.3, -1.72, 0.93, 0.95);
+	parts.flapR = surface(body, white, 2.25, 0.3, 1.72, 0.93, 0.95);
+	parts.ailL = surface(body, white, 2.35, 0.3, -4.04, 0.93, 0.95);
+	parts.ailR = surface(body, white, 2.35, 0.3, 4.04, 0.93, 0.95);
 
 	// rear body and tail
-	hull(root, white, 1.4, 1.14, -0.57, 0.87, 5.6, 0.12, 0.12, 0.45);
-	box(root, white, 3.4, 0.06, 0.75, 0, 0.3, 5.05);
-	parts.elevator = surface(root, white, 3.4, 0.4, 0, 0.3, 5.42);
-	hull(root, white, 4.2, 0.06, 0.4, 0.5, 5.5, 0.06, 0.4, 1.95);
-	hull(root, accent, 4.9, 0.065, 1.45, 1.6, 5.5, 0.065, 1.6, 1.95);
+	hull(body, white, 1.4, 1.14, -0.57, 0.87, 5.6, 0.12, 0.12, 0.45);
+	box(body, white, 3.4, 0.06, 0.75, 0, 0.3, 5.05);
+	parts.elevator = surface(body, white, 3.4, 0.4, 0, 0.3, 5.42);
+	hull(body, white, 4.2, 0.06, 0.4, 0.5, 5.5, 0.06, 0.4, 1.95);
+	hull(body, accent, 4.9, 0.065, 1.45, 1.6, 5.5, 0.065, 1.6, 1.95);
 	parts.rudder = new THREE.Group();
 	parts.rudder.position.set(0, 0, 5.5);
 	box(parts.rudder, white, 0.05, 1.45, 0.42, 0, 1.2, 0.21);
-	root.add(parts.rudder);
+	body.add(parts.rudder);
 
 	// landing gear
-	rod(root, white, 0.04, -0.5, -0.5, 0.45, -1.27, -1.0, 0.45);
-	rod(root, white, 0.04, 0.5, -0.5, 0.45, 1.27, -1.0, 0.45);
-	rod(root, metal, 0.03, 0, -0.45, -1.25, 0, -1.0, -1.25);
+	rod(body, white, 0.04, -0.5, -0.5, 0.45, -1.27, -1.0, 0.45);
+	rod(body, white, 0.04, 0.5, -0.5, 0.45, 1.27, -1.0, 0.45);
+	rod(body, metal, 0.03, 0, -0.45, -1.25, 0, -1.0, -1.25);
 	var wheel = new THREE.CylinderGeometry(0.2, 0.2, 0.13, 12);
 	wheel.rotateZ(Math.PI / 2);
 	for (s = 0; s < 3; s++) {
 		g = new THREE.Mesh(wheel, tire);
 		g.position.set(WHEELS[s].x, -1.0, WHEELS[s].z);
-		root.add(g);
+		body.add(g);
 	}
 
 	// yoke: it moves with your pitch and roll inputs
@@ -175,9 +183,11 @@ function makeAirplane(scene) {
 	g.rotation.x = Math.PI / 2;
 	g.position.z = 0.03;
 	parts.throttle.add(g);
-	root.add(parts.throttle);
+	body.add(parts.throttle);
 
-	makeInstruments(root);
+	parts.panel = new THREE.Group();
+	root.add(parts.panel);
+	makeInstruments(parts.panel);
 
 	// the place of the head. main.js puts the camera into this group.
 	parts.rig = new THREE.Group();
@@ -413,6 +423,36 @@ function makeInstruments(root) {
 	m.position.set(EYE.x + 0.415, 0.085, PANEL_Z + 0.004);
 	root.add(m);
 	box(root, lambert(0x17181a), 0.225, 0.225, 0.006, EYE.x + 0.415, 0.085, PANEL_Z - 0.001);
+
+	// a small board behind the instruments. You see it only in the open view.
+	parts.board = box(root, lambert(0x2b2d31), BOARD_W, BOARD_H, 0.05, BOARD_X, BOARD_Y, PANEL_Z - 0.025);
+	parts.board.visible = false;
+}
+
+// ---------- open view ----------
+
+// Open view: no airplane body. The instruments are on a small board above your forward view,
+// and the yoke stays in front of you. Thus you can see the ground below and around you.
+var _boardAt = new THREE.Vector3();
+
+function setOpenView(on, outside) {
+	var e = OPEN_ANGLE * Math.PI / 180;
+	parts.open = on;
+	// three.js needs true or false here, not 1 or 0
+	parts.body.visible = on ? (outside ? true : false) : true;    // the outside view always shows the airplane
+	parts.board.visible = on ? true : false;
+	if (on) {
+		// turn the board to the eye, then move its center to the point above the forward view
+		parts.panel.rotation.set(e, 0, 0);
+		_boardAt.set(BOARD_X, BOARD_Y, PANEL_Z).applyEuler(parts.panel.rotation);
+		parts.panel.position.set(
+			EYE.x - _boardAt.x,
+			EYE.y + OPEN_DIST * Math.sin(e) - _boardAt.y,
+			EYE.z - OPEN_DIST * Math.cos(e) - _boardAt.z);
+	} else {
+		parts.panel.rotation.set(0, 0, 0);
+		parts.panel.position.set(0, 0, 0);
+	}
 }
 
 // ---------- map screen ----------

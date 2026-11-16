@@ -2,7 +2,7 @@
 // Classic script. It uses THREE, world.js, flight.js, cockpit.js.
 //
 // Order of this file:
-//   constants, setup, start positions, keyboard and pointer, pilot input,
+//   constants, setup, open view, start positions, keyboard and pointer, pilot input,
 //   sound, text display, camera, frame loop.
 
 // ---------- constants ----------
@@ -54,7 +54,8 @@ var game = {
 	hudTime: 0,
 	lookYaw: 0,
 	holdLeft: 0,
-	holdRight: 0
+	holdRight: 0,
+	open: 0              // 1 = open view: no airplane body, instruments at the top
 };
 
 window.addEventListener('resize', function () {
@@ -92,6 +93,26 @@ renderer.xr.addEventListener('sessionend', function () {
 	camera.updateProjectionMatrix();
 });
 
+// ---------- open view ----------
+
+// the browser keeps your selection for the next visit
+function setOpen(on) {
+	game.open = on;
+	setOpenView(on, game.chase);
+	try {
+		localStorage.setItem('cessna.open', on ? '1' : '0');
+	} catch (e) {
+		// no storage: the selection is for this visit only
+	}
+}
+
+try {
+	game.open = localStorage.getItem('cessna.open') === '1' ? 1 : 0;
+} catch (e) {
+	game.open = 0;
+}
+setOpenView(game.open, 0);
+
 // ---------- start positions ----------
 
 function restart(index) {
@@ -121,6 +142,7 @@ window.addEventListener('keydown', function (e) {
 	if (e.code === 'KeyF') plane.flapSet = Math.min(3, plane.flapSet + 1);
 	if (e.code === 'KeyR') plane.flapSet = Math.max(0, plane.flapSet - 1);
 	if (e.code === 'KeyC') setChase(1 - game.chase);
+	if (e.code === 'KeyV') setOpen(1 - game.open);
 	if (e.code === 'KeyP') game.paused = 1 - game.paused;
 	if (e.code === 'Enter') restart(plane.start);
 	if (e.code === 'KeyN') nextStart();
@@ -164,7 +186,7 @@ function newPress(name, down) {
 
 function readInput(dt) {
 	var pitch = 0, roll = 0, yaw = 0, brake = 0, thr = 0, trim = 0;
-	var holdL = 0, holdR = 0;
+	var holdL = 0, holdR = 0, grip = 0;
 	var session = renderer.xr.getSession();
 	var k, src, gp, pads, x, y;
 
@@ -196,6 +218,7 @@ function readInput(dt) {
 			if (pressed(gp, 1)) trim += 1;
 			if (newPress('padX', pressed(gp, 2))) plane.flapSet = Math.min(3, plane.flapSet + 1);
 			if (newPress('padY', pressed(gp, 3))) plane.flapSet = Math.max(0, plane.flapSet - 1);
+			if (newPress('padView', pressed(gp, 4) || pressed(gp, 5))) setOpen(1 - game.open);
 			holdL = Math.max(holdL, pressed(gp, 10));
 			holdR = Math.max(holdR, pressed(gp, 11));
 		}
@@ -228,7 +251,10 @@ function readInput(dt) {
 				holdL = Math.max(holdL, pressed(gp, 3));
 			}
 			brake = Math.max(brake, value(gp, 0));
+			grip = Math.max(grip, pressed(gp, 1));
 		}
+		// grip button of one of the two controllers: cockpit view or open view
+		if (newPress('vrGrip', grip)) setOpen(1 - game.open);
 	}
 
 	roll = clamp(roll, -1, 1);
@@ -400,6 +426,7 @@ var _back = new THREE.Vector3();
 function setChase(on) {
 	if (renderer.xr.isPresenting) on = 0;
 	game.chase = on;
+	setOpenView(game.open, on);
 	if (on) {
 		scene.add(camera);
 		_back.set(0, 0, 1).applyQuaternion(plane.quat);
@@ -425,7 +452,7 @@ function updateCamera(dt) {
 		camera.position.y = Math.max(camera.position.y, groundAt(camera.position.x, camera.position.z) + 1);
 		camera.lookAt(plane.pos);
 	} else {
-		camera.rotation.set(-0.12, game.lookYaw * 1.5, 0, 'YXZ');
+		camera.rotation.set(game.open ? 0.02 : -0.12, game.lookYaw * 1.5, 0, 'YXZ');
 	}
 }
 

@@ -36,10 +36,18 @@ WebXR needs HTTPS. The two hosts supply it.
 | Next start position | hold the left stick button | `N` |
 | Start again | hold the right stick button | `ENTER` |
 | Look left, right | your head | `Q` `E` |
+| Open view: no airplane body, instruments at the top | grip | `V` |
 | Outside view | - | `C` |
 | Pause | - | `P` |
 
 A gamepad on the Mac uses the same layout as the Quest controllers.
+
+## Open view
+
+The open view hides the airplane body, thus you can see the ground below and around you.
+The instruments are on a small board above your forward view. The yoke stays in front of you.
+The flight model does not change: the wings and the wheels are there, but you do not see them.
+The browser keeps your selection. `OPEN_ANGLE` and `OPEN_DIST` at the top of `cockpit.js` set the position of the board.
 
 ## Start positions
 
