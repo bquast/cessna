@@ -413,6 +413,38 @@ function makeInstruments(root) {
 	});
 	parts.rpm = makeNeedle(d, 0.04, 0.035, 0.005);
 
+	// control indicator: it shows your inputs, because you cannot see the yoke in the open view.
+	// Orange dot = yoke (down = pull). Bottom mark = rudder. Left mark = trim.
+	d = makeDial(root, EYE.x + 0.235, y0, 0.04, function (g) {
+		g.strokeStyle = '#8a8e92';
+		g.lineWidth = 3;
+		g.strokeRect(66, 66, 124, 124);
+		g.lineWidth = 1.5;
+		g.beginPath();
+		g.moveTo(128, 66);
+		g.lineTo(128, 190);
+		g.moveTo(66, 128);
+		g.lineTo(190, 128);
+		g.moveTo(66, 214);          // rudder line
+		g.lineTo(190, 214);
+		g.moveTo(48, 66);           // trim line
+		g.lineTo(48, 190);
+		g.stroke();
+		tick(g, 180, 80, 92, 3, '#8a8e92');
+		tick(g, 270, 74, 86, 3, '#8a8e92');
+		label(g, 'YOKE', 0, 86, 15, '#a0a4a8');
+	});
+	parts.ctlRange = 62 * 0.04 / 128;        // half of the square, in meters
+	parts.ctlDot = new THREE.Mesh(new THREE.CircleGeometry(0.0042, 16), orange);
+	parts.ctlDot.position.z = 0.004;
+	d.add(parts.ctlDot);
+	parts.ctlRud = new THREE.Mesh(new THREE.PlaneGeometry(0.004, 0.009), new THREE.MeshBasicMaterial({ color: 0xf4f4ee }));
+	parts.ctlRud.position.set(0, -86 * 0.04 / 128, 0.003);
+	d.add(parts.ctlRud);
+	parts.ctlTrim = new THREE.Mesh(new THREE.PlaneGeometry(0.009, 0.004), new THREE.MeshBasicMaterial({ color: 0xf4f4ee }));
+	parts.ctlTrim.position.set(-80 * 0.04 / 128, 0, 0.003);
+	d.add(parts.ctlTrim);
+
 	// the map screen
 	mapScreen.canvas = document.createElement('canvas');
 	mapScreen.canvas.width = 256;
@@ -431,8 +463,8 @@ function makeInstruments(root) {
 
 // ---------- open view ----------
 
-// Open view: no airplane body. The instruments are on a small board above your forward view,
-// and the yoke stays in front of you. Thus you can see the ground below and around you.
+// Open view: no airplane body and no yoke. The instruments are on a small board above your
+// forward view. Thus you can see the ground below and around you.
 var _boardAt = new THREE.Vector3();
 
 function setOpenView(on, outside) {
@@ -441,6 +473,7 @@ function setOpenView(on, outside) {
 	// three.js needs true or false here, not 1 or 0
 	parts.body.visible = on ? (outside ? true : false) : true;    // the outside view always shows the airplane
 	parts.board.visible = on ? true : false;
+	parts.yoke.visible = parts.body.visible;  // the control indicator on the board replaces the yoke
 	if (on) {
 		// turn the board to the eye, then move its center to the point above the forward view
 		parts.panel.rotation.set(e, 0, 0);
@@ -610,6 +643,10 @@ function updateAirplane(dt, message, warn) {
 	parts.turn.rotation.z = -clamp(p.turnRate / (3 * deg) * 20 * deg, -0.7, 0.7);
 	parts.ball.position.x = clamp(p.ball / 0.12, -1, 1) * parts.ballRange;
 	parts.rpm.rotation.z = -(225 + p.rpm / 3500 * 270) * deg;
+	parts.ctlDot.position.x = p.ail * parts.ctlRange;
+	parts.ctlDot.position.y = -p.elev * parts.ctlRange;
+	parts.ctlRud.position.x = p.rud * parts.ctlRange;
+	parts.ctlTrim.position.y = -p.trim * parts.ctlRange;
 	// You see the ball from the outside. Thus pitch turns it in the direction opposite to the
 	// airplane (nose up = more blue at the symbol), and bank keeps the line level with the horizon.
 	parts.attitude.quaternion.setFromAxisAngle(_axisZ, att.bank).multiply(_inv.setFromAxisAngle(_axisX, att.pitch));
