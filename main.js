@@ -1,8 +1,8 @@
 // main.js - setup, options, pilot input, sound, text display, the frame loop.
-// Classic script. It uses THREE, world.js, flight.js, cockpit.js.
+// Classic script. It uses THREE, world.js, flight.js, cockpit.js, link.js.
 //
 // Order of this file:
-//   constants, setup, options, start positions, keyboard and pointer, hand stick,
+//   constants, setup, options, panel, start positions, keyboard and pointer, hand stick,
 //   hub pointer, pilot input, sound, text display, camera, frame loop.
 
 // ---------- constants ----------
@@ -148,12 +148,18 @@ function hubLines() {
 		['OPEN VIEW', opt.open ? 'ON' : 'OFF'],
 		['HAND STICK', opt.hand ? 'ON: GRIP' : 'OFF'],
 		['NEXT START', '>'],
-		['START AGAIN', '>']
+		['START AGAIN', '>'],
+		link.role === 'copilot' ? ['COPILOT OF ' + link.joined, link.status] : ['COPILOT ' + link.code, link.status]
 	];
 }
 
 // you selected line 'row' of the hub
 function hubAction(row) {
+	if (row > 6) return;                 // the last line shows the copilot code, it has no function
+	if (link.role === 'copilot') {
+		linkSelect(row);                 // the pilot device makes the change, then its state comes back
+		return;
+	}
 	if (row === 0) {
 		opt.aircraft = (opt.aircraft + 1) % AIRCRAFT.length;
 		applyOptions();
@@ -177,6 +183,80 @@ function hubAction(row) {
 	game.hubDirty = 1;
 	saveOptions();
 }
+
+// copilot: use the aircraft and the options of the pilot. They are not kept in the browser.
+function linkOptionsFrom(o, aircraft) {
+	if (opt.aircraft === aircraft && opt.assist === o[1] && opt.level === o[2] && opt.open === o[3] && opt.hand === o[4]) return;
+	opt.aircraft = aircraft;
+	opt.assist = o[1];
+	opt.level = o[2];
+	opt.open = o[3];
+	opt.hand = o[4];
+	applyOptions();
+}
+
+// this device stops as copilot: your own options again, and a new start
+function linkSolo() {
+	opt.aircraft = 0;
+	opt.assist = 1;
+	opt.level = 1;
+	opt.open = 0;
+	opt.hand = 0;
+	loadOptions();
+	applyOptions();
+	game.paused = 0;
+	ctl.pitch = 0;
+	ctl.roll = 0;
+	ctl.yaw = 0;
+	ctl.brake = 0;
+	restart(0);
+}
+
+// ---------- panel ----------
+
+// The panel is on the page, at the top right (not in VR). It has the same lines as the options hub,
+// and the controls to become the copilot of a different device.
+var panelRows = document.getElementById('rows');
+var panelCode = document.getElementById('mycode');
+var panelInput = document.getElementById('code');
+var panelJoin = document.getElementById('join');
+var panelState = document.getElementById('linkstate');
+var panelButtons = [];
+
+function makePanel() {
+	var k, b;
+	for (k = 0; k < 7; k++) {
+		b = document.createElement('button');
+		b.addEventListener('click', hubAction.bind(null, k));
+		panelRows.appendChild(b);
+		panelButtons.push(b);
+	}
+	try {
+		panelInput.value = linkParam('join') || localStorage.getItem('cessna.join') || '';
+	} catch (e) {
+		panelInput.value = '';
+	}
+	panelJoin.addEventListener('click', function () {
+		startSound();
+		if (link.role === 'copilot') linkLeave('');
+		else linkJoin(panelInput.value.replace(/\D/g, ''));
+	});
+}
+
+function drawPanel() {
+	var lines = hubLines();
+	var k;
+	for (k = 0; k < panelButtons.length; k++) {
+		panelButtons[k].textContent = (k + 1) + '  ' + lines[k][0] + ': ' + lines[k][1];
+	}
+	panelCode.textContent = 'Code of this device: ' + link.code + (link.role === 'pilot' ? '   ' + link.status : '');
+	panelJoin.textContent = link.role === 'copilot' ? 'STOP COPILOT' : 'BE COPILOT';
+	panelInput.disabled = link.role === 'copilot';
+	panelState.textContent = link.role === 'copilot' ? 'Copilot of ' + link.joined + ': ' + link.status
+		: (link.status.length > 6 ? link.status : '');
+}
+
+makePanel();
 
 // ---------- start positions ----------
 
@@ -204,15 +284,20 @@ var padUsed = 0;         // 1 = a gamepad gave an input, thus the pointer is not
 
 window.addEventListener('keydown', function (e) {
 	var digit;
+	var fly = link.role !== 'copilot';      // a copilot does not fly
 	startSound();
+	if (e.target === panelInput) {
+		if (e.code === 'Enter') panelJoin.click();
+		return;                              // you type the code: these are not flight keys
+	}
 	if (e.repeat) return;
 	keys[e.code] = 1;
-	if (e.code === 'KeyF') plane.flapSet = Math.min(3, plane.flapSet + 1);
-	if (e.code === 'KeyR') plane.flapSet = Math.max(0, plane.flapSet - 1);
+	if (fly && e.code === 'KeyF') plane.flapSet = Math.min(3, plane.flapSet + 1);
+	if (fly && e.code === 'KeyR') plane.flapSet = Math.max(0, plane.flapSet - 1);
 	if (e.code === 'KeyC') setChase(1 - game.chase);
-	if (e.code === 'KeyP') game.paused = 1 - game.paused;
-	if (e.code === 'Enter') restart(plane.start);
-	if (e.code === 'KeyN') nextStart();
+	if (fly && e.code === 'KeyP') game.paused = 1 - game.paused;
+	if (e.code === 'Enter') hubAction(6);
+	if (e.code === 'KeyN') hubAction(5);
 	if (e.code === 'KeyV') hubAction(3);
 	// keys 1 to 7 = the lines of the options hub
 	if (e.code.indexOf('Digit') === 0) {
@@ -434,6 +519,8 @@ function readInput(dt, xrFrame) {
 		game.hubHover = hover;
 		game.hubDirty = 1;
 	}
+
+	if (link.role === 'copilot') return;     // a copilot does not fly: the inputs come from the pilot
 
 	roll = clamp(roll, -1, 1);
 	if (AUTO_RUDDER && !opt.assist) yaw += roll * 0.35;
@@ -661,6 +748,8 @@ function updateCamera(dt) {
 		camera.position.lerp(_look, Math.min(1, 5 * dt));
 		camera.position.y = Math.max(camera.position.y, groundAt(camera.position.x, camera.position.z) + 1);
 		camera.lookAt(plane.pos);
+	} else if (link.role === 'copilot') {
+		camera.quaternion.slerp(link.head, Math.min(1, 6 * dt));    // you look where the pilot looks
 	} else {
 		camera.rotation.set(opt.open ? 0.02 : -0.12, game.lookYaw * 1.5, 0, 'YXZ');
 	}
@@ -677,7 +766,9 @@ function frame(time, xrFrame) {
 
 	readInput(dt, xrFrame || null);
 
-	if (!game.paused && plane.crashed === '') {
+	if (link.role === 'copilot') {
+		linkCoast(dt);                       // no physics here: the state comes from the pilot
+	} else if (!game.paused && plane.crashed === '') {
 		game.acc += dt;
 		while (game.acc >= DT && steps < 16) {
 			stepPlane(DT);
@@ -685,12 +776,13 @@ function frame(time, xrFrame) {
 			steps++;
 		}
 	}
+	linkUpdate(dt);
 
 	// after a crash: dark view, then the same start position again
 	if (plane.crashed !== '') {
 		game.crashTime += dt;
 		game.fade = approach(game.fade, 1, dt / 0.8);
-		if (game.crashTime > 2.2) restart(plane.start);
+		if (game.crashTime > 2.2 && link.role !== 'copilot') restart(plane.start);
 	} else {
 		game.fade = approach(game.fade, 0, dt / 0.7);
 	}
@@ -703,6 +795,7 @@ function frame(time, xrFrame) {
 	if (game.hubDirty) {
 		game.hubDirty = 0;
 		drawHub(hubLines(), game.hubHover);
+		drawPanel();
 	}
 	updateWorld(dt, plane.pos.x, plane.pos.y, plane.pos.z);
 	updateCamera(dt);
@@ -711,4 +804,5 @@ function frame(time, xrFrame) {
 	renderer.render(scene, camera);
 }
 
+linkStart();
 renderer.setAnimationLoop(frame);

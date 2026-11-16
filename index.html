@@ -15,6 +15,19 @@ canvas { display: block; }
 #hud { top: 10px; opacity: 0.8; }
 #note { top: 30px; font-weight: bold; }
 #help { bottom: 10px; opacity: 0.7; font-size: 12px; }
+#panel {
+	position: fixed; right: 12px; top: 10px; width: 250px; color: #e8ede8;
+	font: 12px ui-monospace, Menlo, monospace; background: rgba(0, 0, 0, 0.45); padding: 8px; border-radius: 6px;
+}
+#panel button {
+	display: block; width: 100%; margin: 0 0 3px 0; padding: 4px 6px; text-align: left; cursor: pointer;
+	font: 12px ui-monospace, Menlo, monospace; color: #e8ede8; background: rgba(255, 255, 255, 0.1);
+	border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 4px;
+}
+#panel button:hover { background: rgba(80, 140, 200, 0.5); }
+#panel input { width: 70px; font: 13px ui-monospace, Menlo, monospace; padding: 3px; }
+#panel #join { display: inline-block; width: auto; margin-left: 4px; }
+#mycode, #linkstate { margin: 6px 0 4px 0; }
 #enter {
 	position: fixed; right: 16px; bottom: 16px; display: none;
 	padding: 12px 24px; font: 16px sans-serif; color: #fff;
@@ -29,12 +42,21 @@ canvas { display: block; }
         right stick = stick   left stick = throttle or lever (up, down) and rudder (left, right)   trigger = brakes
         A, B = trim   X, Y = flaps   hand stick ON: hold the right grip and tilt the controller
 Mac:    keys 1 to 7 = the options   pointer = stick (no press)   W S = throttle or lever   A D = rudder   SPACE = brakes
-        F R = flaps   arrow down, up = trim   Q E = look   C = outside view   P = pause</div>
+        F R = flaps   arrow down, up = trim   Q E = look   C = outside view   P = pause
+Copilot: open this page on a second device, type the code of the pilot device (line 8 of the options), press BE COPILOT</div>
+<div id="panel">
+<div id="rows"></div>
+<div id="mycode"></div>
+<input id="code" maxlength="6" placeholder="code" inputmode="numeric"><button id="join">BE COPILOT</button>
+<div id="linkstate"></div>
+</div>
 <button id="enter">ENTER VR</button>
 <script src="three.min.js"></script>
 <script src="world.js"></script>
 <script src="flight.js"></script>
 <script src="cockpit.js"></script>
+<script src="peerjs.min.js"></script>
+<script src="link.js"></script>
 <script src="main.js"></script>
 </body>
 </html>

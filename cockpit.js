@@ -17,7 +17,7 @@ var OPEN_ANGLE = 24;     // open view: the instrument board is this many degrees
 var OPEN_DIST = 0.8;     // open view: distance from the eye to the board, m
 var BOARD_W = 0.94, BOARD_H = 0.25;                  // size of the board
 var BOARD_X = EYE.x + 0.296, BOARD_Y = 0.083;        // center of the instruments on the panel
-var HUB_ROWS = 7;        // lines of the options hub
+var HUB_ROWS = 8;        // lines of the options hub
 
 var parts = { open: 0, outside: 0 };   // the parts that move
 var MAT = null;          // the materials of the aircraft bodies
@@ -239,16 +239,17 @@ function makeDelta() {
 	rod(body, metal, 0.03, apex[0], apex[1], apex[2], 0, 1.6, 1.9);                // keel
 	rod(body, metal, 0.03, 0, -0.35, 0.78, 0, 1.68, 0.45);                         // mast
 	// control frame and bar
-	rod(body, metal, 0.016, 0, 1.68, 0.2, -0.75, 0.12, -0.5);
-	rod(body, metal, 0.016, 0, 1.68, 0.2, 0.75, 0.12, -0.5);
-	rod(body, dark, 0.02, -0.75, 0.12, -0.5, 0.75, 0.12, -0.5);
-	// low body below the legs, seat, engine
-	hull(body, white, -1.7, 0.3, -0.75, -0.5, 0.9, 0.7, -0.75, -0.3);
+	// The bar is low, below your forward view.
+	rod(body, metal, 0.012, 0, 1.68, -0.1, -0.8, -0.6, -0.8);
+	rod(body, metal, 0.012, 0, 1.68, -0.1, 0.8, -0.6, -0.8);
+	rod(body, dark, 0.018, -0.8, -0.6, -0.8, 0.8, -0.6, -0.8);
+	// a small body below and behind the seat, a thin tube to the nose wheel, seat, engine
+	hull(body, white, -0.3, 0.22, -0.8, -0.66, 1.0, 0.5, -0.8, -0.45);
+	rod(body, metal, 0.025, 0, -0.74, -0.3, 0, -0.78, -1.3);
 	makeSeats(body, 0);
 	box(body, dark, 0.4, 0.4, 0.5, 0, 0.1, 1.05);
 	parts.deltaProp = makeDisc(body, 0.8, 0, 0.2, 1.4);
 	// wheels
-	rod(body, metal, 0.03, 0, -0.5, -1.3, 0, -0.8, -1.3);
 	rod(body, metal, 0.03, -0.85, -0.8, 0.45, 0.85, -0.8, 0.45);
 	for (s = 0; s < 3; s++) makeWheel(body, DELTA.wheels[s].x, -0.8, DELTA.wheels[s].z);
 	return body;
@@ -586,7 +587,8 @@ function setOpenView(on, outside) {
 	// three.js needs true or false here, not 1 or 0
 	parts.body.visible = on ? (outside ? true : false) : true;    // the outside view always shows the aircraft
 	parts.board.visible = (on || plane.type !== 0) ? true : false;
-	if (on) {
+	// the delta wing has no dash: its instruments are always on the board at the top
+	if (on || plane.type === 1) {
 		// turn the board to the eye, then move its center to the point above the forward view
 		parts.rig.add(parts.panel);
 		parts.panel.rotation.set(e, 0, 0);
@@ -606,7 +608,7 @@ function drawHub(lines, hover) {
 	var k;
 	g.fillStyle = '#15171a';
 	g.fillRect(0, 0, 256, 256);
-	g.font = 'bold 15px monospace';
+	g.font = 'bold 14px monospace';
 	g.textBaseline = 'middle';
 	for (k = 0; k < lines.length; k++) {
 		g.fillStyle = k === hover ? '#3d6f9c' : (k % 2 ? '#1f2226' : '#262a2f');

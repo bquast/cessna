@@ -7,12 +7,14 @@ It also runs in a desktop browser. It is a static site: no build step, no server
 
 | File | Function |
 |---|---|
-| `index.html` | Page, VR button, five script tags |
+| `index.html` | Page, VR button, options panel, seven script tags |
 | `three.min.js` | three.js r187, as a classic script (global `THREE`) |
 | `world.js` | Island, three airports, lights, trees, clouds, sky |
 | `flight.js` | Flight models and the assist. No drawing. |
 | `cockpit.js` | Aircraft models, instruments, map screen, options hub, shadow |
-| `main.js` | Setup, options, input, sound, text display, frame loop |
+| `link.js` | Copilot link: pairing, state messages, option changes |
+| `peerjs.min.js` | PeerJS 1.5.5 (WebRTC library), not changed |
+| `main.js` | Setup, options, panel, input, sound, text display, frame loop |
 | `.nojekyll` | Tells GitHub Pages to publish the files as they are |
 
 ## Deploy
@@ -37,6 +39,7 @@ On the Mac, use the keys `1` to `7`. The browser keeps your options.
 | 5 | HAND STICK | ON: the right controller is the stick. Hold the grip and tilt the controller. |
 | 6 | NEXT START | The next start position |
 | 7 | START AGAIN | The same start position again |
+| 8 | COPILOT | Shows the code of this device and the state of the copilot link. It has no function. |
 
 ### Assist
 
@@ -52,6 +55,26 @@ On the Mac, use the keys `1` to `7`. The browser keeps your options.
 Hold the right grip: the position of your hand at that moment is the center.
 Tilt the controller forward and back for pitch, left and right for roll. 25 degrees is the full input.
 Release the grip and the stick is in the center again. `HAND_FULL` and `HAND_HOLD` are at the top of `main.js`.
+
+## Copilot
+
+A second device can show the flight and change the options. Example: you fly on the Quest, a friend looks on the MacBook.
+
+1. On the Quest, read the code of 6 digits: line 8 of the options hub, or the panel on the page before you go into VR.
+   The device keeps its code, thus it is the same each time.
+2. On the Mac, open the same page. Type the code in the panel at the top right and press BE COPILOT.
+   The Mac keeps the last code. You can also open the page with `?join=123456` at the end of the address.
+3. The Mac shows the same island and the aircraft of the pilot, and it looks where the pilot looks. `C` gives the outside view.
+4. The buttons of the panel (or the keys `1` to `7`) change the options on the pilot device.
+5. STOP COPILOT makes the Mac a usual pilot device again.
+
+How it works: a public server (PeerJS cloud) helps the two devices to find each other. After that the data goes
+directly between the devices with WebRTC. On the same WiFi it stays in your network. Bluetooth is not possible between two browsers.
+The pilot sends its state 20 times each second. The copilot has no flight model of its own.
+
+To use your own server and not the public one, run PeerServer (`npm install peer`) and open the page with `?peer=host:port` on the two devices.
+
+Limits: there is no list of pilots, you must know the code. A person who knows the code can change the options, but cannot fly.
 
 ## Controls
 
@@ -98,6 +121,7 @@ PAPI lights at the left of each runway: 2 white + 2 red = correct path, more red
 - `flight.js`, objects `CESSNA`, `DELTA`, `HELI`: all flight numbers and the assist limits. `propYaw` is the left-turn tendency (0.015 = light, 0.15 = real).
 - `main.js`, top: `STICK_CURVE`, `THROTTLE_RATE`, `TRIM_RATE`, `INVERT_PITCH`, `AUTO_RUDDER`, `HAND_FULL`, `HAND_HOLD`.
 - `cockpit.js`, top: `OPEN_ANGLE`, `OPEN_DIST` (position of the board in the open view).
+- `link.js`, top: `LINK_RATE`, `LINK_PREFIX`.
 - `world.js`, top: `AIRPORTS`, sun, fog.
 
 ## three.js
