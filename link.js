@@ -172,7 +172,7 @@ function linkCommand(m) {
 // become the copilot of the pilot with this code
 function linkJoin(code) {
 	if (!link.peer || !/^\d{6}$/.test(code)) {
-		link.status = 'THE CODE HAS 6 DIGITS';
+		link.status = link.peer ? 'THE CODE HAS 6 DIGITS' : 'NO LIBRARY: peerjs.min.js';
 		linkChanged();
 		return;
 	}
@@ -286,8 +286,8 @@ function linkUpdate(dt) {
 	var k, state;
 	if (link.role === 'copilot') {
 		link.silent += dt;
-		if (link.silent > 15 && link.status === 'CONNECTING') {
-			linkLeave('NO ANSWER FROM THIS CODE');
+		if (link.silent > 15 && link.status !== 'ON' && link.status !== 'NO SIGNAL') {
+			linkLeave(link.online ? 'NO ANSWER FROM THIS CODE' : 'NO CONNECTION TO THE SERVER');
 			return;
 		}
 		if (link.silent > LINK_TIMEOUT && link.status === 'ON') {

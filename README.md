@@ -50,6 +50,12 @@ On the Mac, use the keys `1` to `7`. The browser keeps your options.
   The lever sets the climb rate: 50% holds the height, more goes up, less goes down. Below 45% on the ground it stands.
 - ASSIST OFF gives you the direct controls and the real behavior.
 
+### Controls that you can see
+
+- Helicopter: the cyclic (the stick between your knees) tilts with your stick input. The collective (the lever at your left) goes up with the lever input.
+- Delta wing: the control bar moves as in a real trike (weight shift): to pull the nose up the bar goes forward, to turn right the bar goes left.
+- Cessna: the yoke. In the open view there is no body, thus no stick: the YOKE indicator on the board shows your input.
+
 ### Hand stick
 
 Hold the right grip: the position of your hand at that moment is the center.

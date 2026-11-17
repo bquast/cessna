@@ -2,7 +2,7 @@
 // Classic script. It uses THREE, world.js, flight.js, cockpit.js, link.js.
 //
 // Order of this file:
-//   constants, setup, options, panel, start positions, keyboard and pointer, hand stick,
+//   constants, optional link, setup, options, panel, start positions, keyboard and pointer, hand stick,
 //   hub pointer, pilot input, sound, text display, camera, frame loop.
 
 // ---------- constants ----------
@@ -15,6 +15,21 @@ var AUTO_RUDDER = 0;         // 1 = the rudder moves with the ailerons (only wit
 var HOLD_TIME = 0.8;         // seconds to hold a thumbstick button for a restart
 var HAND_FULL = 0.44;        // hand stick: tilt of the controller for the full input, rad (25 degrees)
 var HAND_HOLD = 1;           // hand stick: 1 = hold the grip to fly. 0 = press the grip one time, press again to release.
+
+// ---------- the copilot link is optional ----------
+
+// link.js and peerjs.min.js make the copilot link. If link.js is not on the server,
+// the game runs without the link, and line 8 of the options shows NO FILE.
+if (typeof linkStart === 'undefined') {
+	window.link = { role: 'pilot', code: '------', joined: '', status: 'NO FILE', head: new THREE.Quaternion() };
+	window.linkStart = function () {};
+	window.linkUpdate = function () {};
+	window.linkCoast = function () {};
+	window.linkSelect = function () {};
+	window.linkLeave = function () {};
+	window.linkJoin = function () {};
+	window.linkParam = function () { return ''; };
+}
 
 // ---------- setup ----------
 

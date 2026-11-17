@@ -225,7 +225,7 @@ function makeCessna() {
 // the control bar is in front of the chest, the engine and the propeller are behind.
 function makeDelta() {
 	var body = new THREE.Group();
-	var white = MAT.white, metal = MAT.metal, dark = MAT.dark;
+	var metal = MAT.metal, dark = MAT.dark, white = MAT.white;
 	var apex = [0, 1.95, -1.9], left = [-5, 1.55, 1.3], right = [5, 1.55, 1.3], rear = [0, 1.62, 1.0];
 	var geo, s;
 	body.position.x = EYE.x;        // the eye is 0.27 m left of the origin, thus the body moves with it
@@ -238,16 +238,22 @@ function makeDelta() {
 	rod(body, white, 0.035, apex[0], apex[1], apex[2], right[0], right[1], right[2]);
 	rod(body, metal, 0.03, apex[0], apex[1], apex[2], 0, 1.6, 1.9);                // keel
 	rod(body, metal, 0.03, 0, -0.35, 0.78, 0, 1.68, 0.45);                         // mast
-	// control frame and bar
-	// The bar is low, below your forward view.
-	rod(body, metal, 0.012, 0, 1.68, -0.1, -0.8, -0.6, -0.8);
-	rod(body, metal, 0.012, 0, 1.68, -0.1, 0.8, -0.6, -0.8);
-	rod(body, dark, 0.018, -0.8, -0.6, -0.8, 0.8, -0.6, -0.8);
-	// a small body below and behind the seat, a thin tube to the nose wheel, seat, engine
-	hull(body, white, -0.3, 0.22, -0.8, -0.66, 1.0, 0.5, -0.8, -0.45);
-	rod(body, metal, 0.025, 0, -0.74, -0.3, 0, -0.78, -1.3);
-	makeSeats(body, 0);
-	box(body, dark, 0.4, 0.4, 0.5, 0, 0.1, 1.05);
+	// Control frame and bar. They turn about the hang point at the top of the frame.
+	// This is weight shift, as in a real trike: to pull the nose up you push the bar forward,
+	// and to turn right the bar moves to the left. The bar is low, below your forward view.
+	parts.deltaBar = new THREE.Group();
+	parts.deltaBar.position.set(0, 1.68, -0.1);
+	rod(parts.deltaBar, metal, 0.012, 0, 0, 0, -0.8, -2.28, -0.7);
+	rod(parts.deltaBar, metal, 0.012, 0, 0, 0, 0.8, -2.28, -0.7);
+	rod(parts.deltaBar, dark, 0.018, -0.8, -2.28, -0.7, 0.8, -2.28, -0.7);
+	body.add(parts.deltaBar);
+	// Minimal body: thin tubes only, thus you can see down between your feet.
+	rod(body, metal, 0.02, 0, -0.78, -1.3, 0, -0.78, 1.0);                         // lower keel to the nose wheel
+	rod(body, metal, 0.015, -0.2, -0.62, -0.95, 0.2, -0.62, -0.95);                // foot bar
+	rod(body, metal, 0.015, 0, -0.78, -0.95, 0, -0.62, -0.95);
+	rod(body, dark, 0.02, -0.2, -0.3, 0.55, 0.2, -0.3, 0.55);                      // seat: two thin tubes behind you
+	rod(body, dark, 0.02, -0.2, 0.2, 0.62, 0.2, 0.2, 0.62);
+	box(body, dark, 0.4, 0.4, 0.5, 0, 0.1, 1.05);                                  // engine, behind you
 	parts.deltaProp = makeDisc(body, 0.8, 0, 0.2, 1.4);
 	// wheels
 	rod(body, metal, 0.03, -0.85, -0.8, 0.45, 0.85, -0.8, 0.45);
@@ -259,7 +265,7 @@ function makeDelta() {
 function makeHeli() {
 	var body = new THREE.Group();
 	var white = MAT.white, accent = MAT.accent, metal = MAT.metal, dark = MAT.dark;
-	var s;
+	var s, g;
 	box(body, dark, 1.3, 0.05, 2.2, 0, -0.57, 0.2);                                // floor
 	hull(body, white, -1.6, 0.5, -0.57, -0.3, -0.9, 1.3, -0.6, -0.12);             // low nose
 	box(body, accent, 0.03, 0.3, 2.2, -0.65, -0.42, 0.2);
@@ -271,6 +277,23 @@ function makeHeli() {
 	box(body, dark, 0.3, 0.5, 0.2, BOARD_X, -0.3, PANEL_Z - 0.1);                  // foot of the instrument board
 	makeSeats(body, -0.27);
 	makeSeats(body, 0.27);
+	// Cyclic: the stick between your knees. It tilts in the same direction as your input.
+	parts.cyclic = new THREE.Group();
+	parts.cyclic.position.set(EYE.x, -0.55, -0.2);
+	rod(parts.cyclic, metal, 0.012, 0, 0, 0, 0, 0.55, 0);
+	g = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.12, 10), dark);
+	g.position.y = 0.6;
+	parts.cyclic.add(g);
+	body.add(parts.cyclic);
+	// Collective: the lever at the left of your seat. It goes up with the lever input.
+	parts.collective = new THREE.Group();
+	parts.collective.position.set(EYE.x - 0.28, -0.3, 0.3);
+	rod(parts.collective, metal, 0.012, 0, 0, 0, 0, 0, -0.45);
+	g = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.1, 10), dark);
+	g.rotation.x = Math.PI / 2;
+	g.position.z = -0.48;
+	parts.collective.add(g);
+	body.add(parts.collective);
 	// rotor
 	rod(body, metal, 0.05, 0, 1.15, 0.4, 0, 1.75, 0.4);
 	parts.rotor = makeDisc(body, 3.8, 0, 1.75, 0.4);
@@ -769,8 +792,11 @@ function updateAirplane(dt, message, warn) {
 		parts.prop.material.opacity = 0.03 + 0.05 * clamp(p.power * 3, 0, 1);
 	} else if (p.type === 1) {
 		parts.deltaProp.material.opacity = 0.05 + 0.08 * clamp(p.power * 3, 0, 1);
+		parts.deltaBar.rotation.set(0.12 * ctl.pitch, 0, -0.12 * ctl.roll);    // your input, the same as the YOKE indicator
 	} else {
 		parts.rotorBlades.rotation.y += 2.2 * dt;                          // slow, thus the blades do not flicker
+		parts.cyclic.rotation.set(0.3 * ctl.pitch, 0, -0.3 * ctl.roll);
+		parts.collective.rotation.x = 0.4 * p.thr;
 	}
 
 	// instruments
